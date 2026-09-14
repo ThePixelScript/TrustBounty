@@ -1,0 +1,21 @@
+{
+  "name": "@trustbounty/specification",
+  "version": "1.0.0",
+  "description": "TrustBounty Acceptance Specification foundation: validation, canonicalization, and cryptographic commitment",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "build": "tsc",
+    "type-check": "tsc --noEmit",
+    "test": "node --test test/validate.test.ts test/canonicalize.test.ts test/hash.test.ts"
+  },
+  "dependencies": {
+    "canonicalize": "^5.0.0",
+    "js-sha3": "^0.13.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.8.0"
+  }
+}
