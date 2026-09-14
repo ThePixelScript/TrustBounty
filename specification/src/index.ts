@@ -1,6 +1,7 @@
 export type {
   AcceptanceSpecification,
   RepositoryRef,
+  ExecutionEnvironment,
   AcceptanceCriterion,
   BuildCriterion,
   TestCriterion,

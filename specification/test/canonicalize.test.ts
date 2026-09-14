@@ -4,14 +4,17 @@ import { canonicalizeSpecification } from '../src/canonicalize.ts';
 import type { AcceptanceSpecification } from '../src/types.ts';
 
 test('canonicalizeSpecification: produces identical output for semantically equivalent key ordering', () => {
-  // Input A and Input B from RFC requirement adapted with a valid criterion
+  // Input A and Input B from RFC requirement adapted with a valid criterion and environment
   const inputA = {
-    version: '1.0',
+    version: '1.1',
     repository: {
       owner: 'x',
       name: 'y',
     },
     baseCommit: 'abc',
+    environment: {
+      image: 'docker.io/library/node@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    },
     criteria: [
       {
         id: 'BUILD-001',
@@ -31,12 +34,15 @@ test('canonicalizeSpecification: produces identical output for semantically equi
         id: 'BUILD-001',
       },
     ],
+    environment: {
+      image: 'docker.io/library/node@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    },
     baseCommit: 'abc',
     repository: {
       name: 'y',
       owner: 'x',
     },
-    version: '1.0',
+    version: '1.1',
   };
 
   const canonicalA = canonicalizeSpecification(inputA);
@@ -44,20 +50,23 @@ test('canonicalizeSpecification: produces identical output for semantically equi
 
   assert.strictEqual(canonicalA, canonicalB);
 
-  // Verify exact RFC 8785 lexicographical key ordering (baseCommit < criteria < repository < version)
-  const expectedPrefix = '{"baseCommit":"abc","criteria":[{"command":"npm run build","id":"BUILD-001","required":true,"type":"BUILD"}],"repository":{"name":"y","owner":"x"},"version":"1.0"}';
-  assert.strictEqual(canonicalA, expectedPrefix);
+  // Verify exact RFC 8785 lexicographical key ordering (baseCommit < criteria < environment < repository < version)
+  const expected = '{"baseCommit":"abc","criteria":[{"command":"npm run build","id":"BUILD-001","required":true,"type":"BUILD"}],"environment":{"image":"docker.io/library/node@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"},"repository":{"name":"y","owner":"x"},"version":"1.1"}';
+  assert.strictEqual(canonicalA, expected);
 });
 
 test('canonicalizeSpecification: whitespace invariance across parsed equivalents', () => {
-  const jsonStringA = '{"version":"1.0","repository":{"owner":"x","name":"y"},"baseCommit":"abc","criteria":[{"id":"TEST-001","type":"TEST","command":"npm test","required":true}]}';
+  const jsonStringA = '{"version":"1.1","repository":{"owner":"x","name":"y"},"baseCommit":"abc","environment":{"image":"docker.io/library/node@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"},"criteria":[{"id":"TEST-001","type":"TEST","command":"npm test","required":true}]}';
   const jsonStringB = `{
-    "version":  "1.0" ,
+    "version":  "1.1" ,
     "repository": {
       "owner": "x",
       "name": "y"
     },
     "baseCommit": "abc",
+    "environment": {
+      "image": "docker.io/library/node@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    },
     "criteria": [
       {
         "id": "TEST-001",
@@ -79,9 +88,12 @@ test('canonicalizeSpecification: whitespace invariance across parsed equivalents
 
 test('canonicalizeSpecification: deterministic repeated calls', () => {
   const spec: AcceptanceSpecification = {
-    version: '1.0',
+    version: '1.1',
     repository: { owner: 'org', name: 'repo' },
     baseCommit: 'commit123',
+    environment: {
+      image: 'docker.io/library/node@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    },
     criteria: [
       {
         id: 'COV-001',
@@ -103,9 +115,12 @@ test('canonicalizeSpecification: deterministic repeated calls', () => {
 
 test('canonicalizeSpecification: does not mutate input object', () => {
   const spec: AcceptanceSpecification = {
-    version: '1.0',
+    version: '1.1',
     repository: { owner: 'org', name: 'repo' },
     baseCommit: 'commit123',
+    environment: {
+      image: 'docker.io/library/node@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    },
     criteria: [
       {
         id: 'BUILD-001',

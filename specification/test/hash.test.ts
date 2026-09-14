@@ -8,12 +8,15 @@ import type { AcceptanceSpecification } from '../src/types.ts';
 
 function createValidSpec(): AcceptanceSpecification {
   return {
-    version: '1.0',
+    version: '1.1',
     repository: {
       owner: 'example',
       name: 'project',
     },
     baseCommit: 'abc123',
+    environment: {
+      image: 'docker.io/library/node@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    },
     criteria: [
       {
         id: 'BUILD-001',
@@ -57,6 +60,21 @@ test('hashSpecification: different specification produces different hash (sensit
   assert.notStrictEqual(hashA, hashB);
 });
 
+test('hashSpecification: different environment image produces different hash (environment sensitivity)', () => {
+  const specA = createValidSpec();
+  const specB: AcceptanceSpecification = {
+    ...createValidSpec(),
+    environment: {
+      image: 'docker.io/library/node@sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210',
+    },
+  };
+
+  const hashA = hashSpecification(specA);
+  const hashB = hashSpecification(specB);
+
+  assert.notStrictEqual(hashA, hashB);
+});
+
 test('hashSpecification: uses Ethereum Keccak-256, NOT NIST SHA3-256', () => {
   const spec = createValidSpec();
   const canonicalJson = canonicalizeSpecification(spec);
@@ -75,12 +93,15 @@ test('hashSpecification: uses Ethereum Keccak-256, NOT NIST SHA3-256', () => {
 
 test('hashSpecification: produces same hash regardless of key order', () => {
   const specA = {
-    version: '1.0',
+    version: '1.1',
     repository: {
       owner: 'example',
       name: 'project',
     },
     baseCommit: 'abc123',
+    environment: {
+      image: 'docker.io/library/node@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    },
     criteria: [
       {
         id: 'BUILD-001',
@@ -100,8 +121,11 @@ test('hashSpecification: produces same hash regardless of key order', () => {
         id: 'BUILD-001',
       },
     ],
+    environment: {
+      image: 'docker.io/library/node@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    },
     baseCommit: 'abc123',
-    version: '1.0',
+    version: '1.1',
     repository: {
       name: 'project',
       owner: 'example',

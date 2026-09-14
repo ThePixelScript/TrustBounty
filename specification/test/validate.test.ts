@@ -5,12 +5,15 @@ import type { AcceptanceSpecification } from '../src/types.ts';
 
 function createValidSpec(): AcceptanceSpecification {
   return {
-    version: '1.0',
+    version: '1.1',
     repository: {
       owner: 'example',
       name: 'project',
     },
     baseCommit: 'abc123',
+    environment: {
+      image: 'docker.io/library/node@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    },
     criteria: [
       {
         id: 'BUILD-001',
@@ -51,12 +54,19 @@ test('validateSpecification: rejects non-object input', () => {
   assert.strictEqual(validateSpecification([]).valid, false);
 });
 
-test('validateSpecification: rejects invalid version', () => {
-  const spec = { ...createValidSpec(), version: '2.0' };
-  const result = validateSpecification(spec);
-  assert.strictEqual(result.valid, false);
-  if (!result.valid) {
-    assert.ok(result.errors.some((e) => e.path === 'version'));
+test('validateSpecification: rejects invalid version (including v1.0)', () => {
+  const spec2 = { ...createValidSpec(), version: '2.0' };
+  const result2 = validateSpecification(spec2);
+  assert.strictEqual(result2.valid, false);
+  if (!result2.valid) {
+    assert.ok(result2.errors.some((e) => e.path === 'version'));
+  }
+
+  const spec1 = { ...createValidSpec(), version: '1.0' };
+  const result1 = validateSpecification(spec1);
+  assert.strictEqual(result1.valid, false);
+  if (!result1.valid) {
+    assert.ok(result1.errors.some((e) => e.path === 'version'));
   }
 });
 
@@ -241,3 +251,79 @@ test('validateSpecification: rejects unknown field in COVERAGE criterion', () =>
   }
 });
 
+test('validateSpecification: rejects missing environment', () => {
+  const spec = createValidSpec();
+  // @ts-expect-error testing missing environment
+  delete spec.environment;
+  const result = validateSpecification(spec);
+  assert.strictEqual(result.valid, false);
+  if (!result.valid) {
+    assert.ok(result.errors.some((e) => e.path === 'environment'));
+  }
+});
+
+test('validateSpecification: rejects non-object environment', () => {
+  const specNull = { ...createValidSpec(), environment: null };
+  const resultNull = validateSpecification(specNull);
+  assert.strictEqual(resultNull.valid, false);
+  if (!resultNull.valid) {
+    assert.ok(resultNull.errors.some((e) => e.path === 'environment'));
+  }
+
+  const specArray = { ...createValidSpec(), environment: [] };
+  const resultArray = validateSpecification(specArray);
+  assert.strictEqual(resultArray.valid, false);
+  if (!resultArray.valid) {
+    assert.ok(resultArray.errors.some((e) => e.path === 'environment'));
+  }
+});
+
+test('validateSpecification: rejects empty environment image', () => {
+  const spec = createValidSpec();
+  spec.environment.image = '   ';
+  const result = validateSpecification(spec);
+  assert.strictEqual(result.valid, false);
+  if (!result.valid) {
+    assert.ok(result.errors.some((e) => e.path === 'environment.image'));
+  }
+});
+
+test('validateSpecification: rejects image without immutable digest', () => {
+  const spec1 = createValidSpec();
+  spec1.environment.image = 'node:22';
+  assert.strictEqual(validateSpecification(spec1).valid, false);
+
+  const spec2 = createValidSpec();
+  spec2.environment.image = 'docker.io/library/node:22';
+  assert.strictEqual(validateSpecification(spec2).valid, false);
+});
+
+test('validateSpecification: rejects image with truncated digest', () => {
+  const spec = createValidSpec();
+  spec.environment.image = 'docker.io/library/node@sha256:abc';
+  const result = validateSpecification(spec);
+  assert.strictEqual(result.valid, false);
+  if (!result.valid) {
+    assert.ok(result.errors.some((e) => e.path === 'environment.image'));
+  }
+});
+
+test('validateSpecification: rejects image with uppercase hex digest', () => {
+  const spec = createValidSpec();
+  spec.environment.image = 'docker.io/library/node@sha256:0123456789ABCDEF0123456789abcdef0123456789abcdef0123456789abcdef';
+  const result = validateSpecification(spec);
+  assert.strictEqual(result.valid, false);
+  if (!result.valid) {
+    assert.ok(result.errors.some((e) => e.path === 'environment.image'));
+  }
+});
+
+test('validateSpecification: rejects unknown field in environment', () => {
+  const spec = createValidSpec();
+  (spec.environment as unknown as Record<string, unknown>).extraField = 'unexpected';
+  const result = validateSpecification(spec);
+  assert.strictEqual(result.valid, false);
+  if (!result.valid) {
+    assert.ok(result.errors.some((e) => e.path === 'environment.extraField'));
+  }
+});

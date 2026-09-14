@@ -29,10 +29,15 @@ export interface RepositoryRef {
   name: string;
 }
 
+export interface ExecutionEnvironment {
+  image: string;
+}
+
 export interface AcceptanceSpecification {
-  version: '1.0';
+  version: '1.1';
   repository: RepositoryRef;
   baseCommit: string;
+  environment: ExecutionEnvironment;
   criteria: AcceptanceCriterion[];
 }
 

@@ -6,25 +6,28 @@ The TrustBounty Acceptance Specification defines the machine-readable requiremen
 
 ## Specification Lifecycle
 
-1. **Authoring**: The bounty sponsor defines the repository context, target base commit, and verification criteria.
-2. **Validation**: The specification is validated against protocol rules, ensuring schema conformity, unambiguous criteria IDs, and valid thresholds.
+1. **Authoring**: The bounty sponsor defines the repository context, target base commit, execution environment, and verification criteria.
+2. **Validation**: The specification is validated against protocol rules, ensuring schema conformity, immutable environment digest, unambiguous criteria IDs, and valid thresholds.
 3. **Canonicalization**: The validated specification is serialized using RFC 8785 JSON Canonicalization Scheme (JCS) to eliminate formatting ambiguity.
 4. **Commitment**: The canonical representation is hashed using Ethereum-compatible Keccak-256 (`specHash`).
 5. **On-Chain Commitment**: The resulting `specHash` is submitted during bounty initialization on-chain prior to bounty activation.
-6. **Verification (Future)**: Evaluation environments execute the committed criteria against submitted pull requests.
+6. **Verification (Future)**: Evaluation environments execute the committed criteria within the designated immutable container image against submitted pull requests.
 
 ## Schema
 
-Acceptance specifications conform to the v1.0 schema:
+Acceptance specifications conform to the v1.1 schema:
 
 ```json
 {
-  "version": "1.0",
+  "version": "1.1",
   "repository": {
     "owner": "string",
     "name": "string"
   },
   "baseCommit": "string",
+  "environment": {
+    "image": "string"
+  },
   "criteria": [
     {
       "id": "string",
@@ -48,6 +51,7 @@ export interface BuildCriterion {
 }
 
 export interface TestCriterion {
+  id: string;
   type: 'TEST';
   command: string;
   required: boolean;
@@ -68,13 +72,27 @@ export interface RepositoryRef {
   name: string;
 }
 
+export interface ExecutionEnvironment {
+  image: string;
+}
+
 export interface AcceptanceSpecification {
-  version: '1.0';
+  version: '1.1';
   repository: RepositoryRef;
   baseCommit: string;
+  environment: ExecutionEnvironment;
   criteria: AcceptanceCriterion[];
 }
 ```
+
+## Environment Semantics
+
+The `environment` object specifies the immutable runtime container image in which criteria verification must take place.
+
+- **Field**: `image` (string, required).
+- **Format**: Must follow `<image-reference>@sha256:<64 lowercase hexadecimal characters>`.
+- **Immutability**: Image references must be pinned to a cryptographic sha256 digest rather than a mutable tag (e.g. `:latest` or `:22`), ensuring verifiable reproducibility.
+- **Validation Scope**: Validation checks digest syntax purely offline without performing network calls or registry lookups.
 
 ## Criterion Semantics
 
@@ -93,7 +111,7 @@ export interface AcceptanceSpecification {
 ### COVERAGE
 - **Purpose**: Verifies that automated code coverage meets or exceeds a target threshold.
 - **Fields**:
-  - `operator`: The comparison operator. Only `>=` is supported in v1.0.
+  - `operator`: The comparison operator. Only `>=` is supported in v1.1.
   - `thresholdBps`: Non-negative integer representing basis points where 100 bps = 1.00% (e.g., `8000` = 80.00%, maximum `10000` = 100.00%). Floating-point numbers and negative values are strictly prohibited.
   - `required`: Boolean flag indicating if passing this criterion is mandatory.
 
@@ -101,7 +119,7 @@ export interface AcceptanceSpecification {
 
 Canonicalization uses RFC 8785 (JSON Canonicalization Scheme - JCS). 
 
-- Object keys are sorted lexicographically by their UTF-16 code units.
+- Object keys are sorted lexicographically by their UTF-16 code units (e.g., `baseCommit` < `criteria` < `environment` < `repository` < `version`).
 - Insignificant whitespace (spaces, tabs, newlines) outside string literals is omitted.
 - Numbers and strings are serialized deterministically per RFC 8785 rules.
 - Input data structures are never mutated during canonicalization.
@@ -119,28 +137,29 @@ specHash = Keccak-256(RFC8785(specification))
 - **Algorithm**: Keccak-256 (standard Ethereum cryptographic primitive, distinct from NIST FIPS 202 SHA3-256).
 - **Format**: Normalized lowercase `0x`-prefixed 32-byte hexadecimal string (64 hex characters following `0x`).
 - **Determinism**: Identical specifications always produce identical hashes.
-- **Integrity**: The hash is an integrity and commitment mechanism. It guarantees that the specification cannot be altered without changing the hash; it is not proof that the specification is fair, correct, or achievable.
+- **Integrity**: The hash is an integrity and commitment mechanism. It guarantees that the specification (including environment, criteria, and base commit) cannot be altered without changing the hash; it is not proof that the specification is fair, correct, or achievable.
 
 ## Immutability Requirement
 
-The acceptance specification must be committed before bounty activation. Once a bounty is activated, the acceptance criteria are fixed. Any modification to acceptance criteria requires the cancellation or expiration of the existing bounty and the creation of a new bounty with a new specification commitment.
+The acceptance specification must be committed before bounty activation. Once a bounty is activated, the acceptance criteria and execution environment are fixed. Any modification to acceptance criteria requires the cancellation or expiration of the existing bounty and the creation of a new bounty with a new specification commitment.
 
 *Note*: Cryptographic enforcement of bounty immutability is handled by the TrustBounty smart contract protocol in a later milestone, not by this TypeScript foundation module.
 
 ## Validation Rules
 
-Validators strictly enforce the following constraints:
-1. **Root**: Must be a non-null, non-array object.
-2. **Version**: Must equal `"1.0"` exactly.
-3. **Repository**: Must be a non-null object with non-empty string fields `owner` and `name`.
+Validators strictly enforce a closed schema with the following constraints:
+1. **Root**: Must be a non-null, non-array object. Only allowed keys: `version`, `repository`, `baseCommit`, `environment`, `criteria`.
+2. **Version**: Must equal `"1.1"` exactly.
+3. **Repository**: Must be a non-null object. Only allowed keys: `owner`, `name` (both non-empty strings).
 4. **Base Commit**: Must be a non-empty string identifying the target Git commit.
-5. **Criteria**: Must be an array containing at least one criterion.
-6. **Criterion ID**: Must be a non-empty string and unique across all criteria in the specification.
-7. **Criterion Type**: Must be one of `BUILD`, `TEST`, or `COVERAGE`.
-8. **Commands**: For `BUILD` and `TEST`, `command` must be a non-empty string.
-9. **Coverage Operator**: For `COVERAGE`, `operator` must be `>=`.
-10. **Coverage Threshold**: For `COVERAGE`, `thresholdBps` must be an integer between 0 and 10000.
-11. **Required Flag**: Each criterion must explicitly set `required` as a boolean.
+5. **Environment**: Must be a non-null object. Only allowed key: `image`. The `image` must be a non-empty string matching `<image-reference>@sha256:<64 lowercase hex characters>`.
+6. **Criteria**: Must be an array containing at least one criterion.
+7. **Criterion ID**: Must be a non-empty string and unique across all criteria in the specification.
+8. **Criterion Type**: Must be one of `BUILD`, `TEST`, or `COVERAGE`.
+9. **Commands**: For `BUILD` and `TEST`, `command` must be a non-empty string. Allowed keys: `id`, `type`, `command`, `required`.
+10. **Coverage Operator**: For `COVERAGE`, `operator` must be `>=`. Allowed keys: `id`, `type`, `operator`, `thresholdBps`, `required`.
+11. **Coverage Threshold**: For `COVERAGE`, `thresholdBps` must be an integer between 0 and 10000.
+12. **Required Flag**: Each criterion must explicitly set `required` as a boolean.
 
 Validation errors clearly identify the invalid field path and error rationale. Validation is pure, performing no silent mutations or repairs.
 
@@ -148,12 +167,12 @@ Validation errors clearly identify the invalid field path and error rationale. V
 
 - Only three criterion types are supported: `BUILD`, `TEST`, and `COVERAGE`.
 - Coverage comparisons only support the `>=` operator.
-- Execution environment constraints, container images, resource limits, and timeouts are out of scope for v1.0 specification models.
+- Execution environment specifications support a single container image digest; multi-stage environments, resource limits, and timeouts are out of scope for v1.1.
 - Cryptographic on-chain binding is not enforced in this module and will be handled by the smart contract milestone.
 
 ## Future Extensions
 
 - Additional criterion types (e.g., LINT, BENCHMARK, STATIC_ANALYSIS, CUSTOM_SCRIPT).
 - Multi-metric coverage thresholds (e.g., branch, line, and function coverage specifications).
-- Environment and toolchain specification hashes (e.g., container image digest, runtime versions).
+- Extended environment specifications (resource constraints, CPU/memory limits, timeouts, multi-container setups).
 - Dynamic parameter matrices for multi-platform test suites.

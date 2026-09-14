@@ -1,10 +1,13 @@
 import type { AcceptanceSpecification, ValidationResult, ValidationError } from './types.ts';
 
 const VALID_CRITERION_TYPES = new Set(['BUILD', 'TEST', 'COVERAGE']);
-const ALLOWED_TOP_LEVEL_KEYS = new Set(['version', 'repository', 'baseCommit', 'criteria']);
+const ALLOWED_TOP_LEVEL_KEYS = new Set(['version', 'repository', 'baseCommit', 'environment', 'criteria']);
 const ALLOWED_REPOSITORY_KEYS = new Set(['owner', 'name']);
+const ALLOWED_ENVIRONMENT_KEYS = new Set(['image']);
 const ALLOWED_BUILD_TEST_CRITERION_KEYS = new Set(['id', 'type', 'command', 'required']);
 const ALLOWED_COVERAGE_CRITERION_KEYS = new Set(['id', 'type', 'operator', 'thresholdBps', 'required']);
+
+const ENVIRONMENT_IMAGE_REGEX = /^[^\s@]+@sha256:[0-9a-f]{64}$/;
 
 /**
  * Pure validation function for AcceptanceSpecification.
@@ -38,10 +41,10 @@ export function validateSpecification(input: unknown): ValidationResult {
   }
 
   // Version check
-  if (typeof spec.version !== 'string' || spec.version !== '1.0') {
+  if (typeof spec.version !== 'string' || spec.version !== '1.1') {
     errors.push({
       path: 'version',
-      message: 'Specification version must be "1.0"',
+      message: 'Specification version must be "1.1"',
     });
   }
 
@@ -81,6 +84,35 @@ export function validateSpecification(input: unknown): ValidationResult {
       path: 'baseCommit',
       message: 'Specification baseCommit must be a non-empty string',
     });
+  }
+
+  // Environment check
+  if (typeof spec.environment !== 'object' || spec.environment === null || Array.isArray(spec.environment)) {
+    errors.push({
+      path: 'environment',
+      message: 'Specification environment must be a non-null object',
+    });
+  } else {
+    const env = spec.environment as Record<string, unknown>;
+    for (const key of Object.keys(env)) {
+      if (!ALLOWED_ENVIRONMENT_KEYS.has(key)) {
+        errors.push({
+          path: `environment.${key}`,
+          message: `Unknown field: "environment.${key}"`,
+        });
+      }
+    }
+    if (typeof env.image !== 'string' || env.image.trim() === '') {
+      errors.push({
+        path: 'environment.image',
+        message: 'Environment image must be a non-empty string',
+      });
+    } else if (!ENVIRONMENT_IMAGE_REGEX.test(env.image)) {
+      errors.push({
+        path: 'environment.image',
+        message: 'Environment image must be in the format <image-reference>@sha256:<64 lowercase hexadecimal characters>',
+      });
+    }
   }
 
   // Criteria check
