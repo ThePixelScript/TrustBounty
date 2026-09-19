@@ -57,3 +57,23 @@ export {
   RepositoryIdentityMismatchError,
   WorkspaceTimeoutError,
 } from './errors.ts';
+
+// Phase 2B-1: Docker Sandbox Runner
+export {
+  executeInSandbox,
+  reconcileStaleContainers,
+  ENVIRONMENT_IMAGE_REGEX,
+  RESOURCE_BOUNDS,
+  ConcurrencyLimiter,
+  defaultConcurrencyLimiter,
+} from './docker.ts';
+
+export type {
+  ExecutionStatus,
+  ErrorCategory,
+  SandboxResources,
+  ImagePullPolicy,
+  SandboxConfig,
+  ExecutionResult,
+  ReconcileOptions,
+} from './docker-types.ts';
