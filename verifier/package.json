@@ -7,7 +7,7 @@
   "types": "./src/index.ts",
   "scripts": {
     "type-check": "node ../specification/node_modules/typescript/bin/tsc --noEmit",
-    "test": "node --test test/workspace.test.ts test/docker.test.ts"
+    "test": "node --test test/workspace.test.ts test/docker.test.ts test/evidence.test.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

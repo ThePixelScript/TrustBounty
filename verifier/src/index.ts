@@ -77,3 +77,50 @@ export type {
   ExecutionResult,
   ReconcileOptions,
 } from './docker-types.ts';
+
+// Phase 2B-2: Criterion Evaluation & Evidence Commitment
+export {
+  mapExecutionResultToVerdict,
+  evaluateCoverageCriterion,
+  aggregateVerdicts,
+} from './criterion-evaluator.ts';
+
+export {
+  computeKeccak256Digest,
+  canonicalizeManifest,
+  computeEvidenceHash,
+  validateCanonicalDecimalBountyId,
+  buildCanonicalManifest,
+  EMPTY_BYTES_KECCAK256,
+} from './evidence-builder.ts';
+
+export {
+  storeEvidenceBundle,
+  verifyEvidenceBundle,
+  validateCriterionIdForPath,
+  assertPathWithinDirectory,
+} from './evidence-store.ts';
+
+export {
+  executeCriteria,
+  runAndCommitVerification,
+} from './multi-criterion-runner.ts';
+
+export type {
+  ManifestVerdict,
+  BuildTestCriterionEvidenceRecord,
+  CoverageCriterionEvidenceRecord,
+  CriterionEvidenceRecord,
+  CanonicalEvidenceManifest,
+  RuntimeMetadata,
+  CriterionEvaluationResult,
+  MultiCriterionExecutionResult,
+  EvidenceBundle,
+} from './evidence-types.ts';
+
+export {
+  EvidenceCommitmentError,
+  EvidenceCollisionError,
+  EvidenceVerificationError,
+  InvalidManifestError,
+} from './errors.ts';

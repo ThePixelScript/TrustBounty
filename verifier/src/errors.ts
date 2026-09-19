@@ -191,3 +191,57 @@ export class WorkspaceTimeoutError extends GitWorkspaceError {
     this.totalTimeoutMs = totalTimeoutMs;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Phase 2B-2 Evidence Commitment Errors
+// ---------------------------------------------------------------------------
+
+/**
+ * Base error for Phase 2B-2 evidence commitment and bundle persistence failures.
+ */
+export class EvidenceCommitmentError extends Error {
+  public readonly cause?: unknown;
+
+  constructor(message: string, cause?: unknown) {
+    super(message);
+    this.name = 'EvidenceCommitmentError';
+    this.cause = cause;
+  }
+}
+
+/**
+ * Thrown when an evidence bundle directory already exists for the given evidenceHash,
+ * but contains conflicting or non-identical manifest contents.
+ */
+export class EvidenceCollisionError extends EvidenceCommitmentError {
+  public readonly evidenceHash: string;
+
+  constructor(evidenceHash: string, message: string) {
+    super(`Evidence collision detected for ${evidenceHash}: ${message}`);
+    this.name = 'EvidenceCollisionError';
+    this.evidenceHash = evidenceHash;
+  }
+}
+
+/**
+ * Thrown when an existing evidence bundle fails cryptographic integrity verification.
+ */
+export class EvidenceVerificationError extends EvidenceCommitmentError {
+  public readonly evidenceHash?: string;
+
+  constructor(message: string, evidenceHash?: string) {
+    super(`Evidence verification failed: ${message}`);
+    this.name = 'EvidenceVerificationError';
+    this.evidenceHash = evidenceHash;
+  }
+}
+
+/**
+ * Thrown when a manifest object does not conform to the canonical evidence schema.
+ */
+export class InvalidManifestError extends EvidenceCommitmentError {
+  constructor(message: string) {
+    super(`Invalid evidence manifest: ${message}`);
+    this.name = 'InvalidManifestError';
+  }
+}
