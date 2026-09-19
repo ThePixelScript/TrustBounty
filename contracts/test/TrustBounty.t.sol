@@ -17,7 +17,10 @@ contract TrustBountyStructuralTest is Test {
 
     address internal maintainer1 = address(0xAAAA);
     address internal maintainer2 = address(0xBBBB);
+    address internal contributor1 = address(0xCCCC);
+    address internal contributor2 = address(0xDDDD);
     bytes32 internal sampleSpecHash = keccak256("canonical-spec-v1.1");
+    bytes20 internal sampleCommitHash = bytes20(hex"1234567890abcdef1234567890abcdef12345678");
 
     TrustBounty internal trustBounty;
 
@@ -313,5 +316,179 @@ contract TrustBountyStructuralTest is Test {
         assertEq(b2.specHash, spec2);
         assertEq(b2.reward, 4 ether);
         assertEq(b2.submissionDeadline, deadline2);
+    }
+
+    // --- submitWork Tests ---
+
+    function test_SubmitWork_ValidSubmission_ChangesStateToSubmitted() public {
+        uint256 deadline = block.timestamp + 7 days;
+        vm.prank(maintainer1);
+        uint256 bountyId = trustBounty.createBounty{value: 1 ether}(sampleSpecHash, deadline);
+
+        vm.prank(contributor1);
+        trustBounty.submitWork(bountyId, sampleCommitHash);
+
+        Bounty memory b = trustBounty.getBounty(bountyId);
+        assertEq(uint8(b.state), uint8(State.SUBMITTED));
+    }
+
+    function test_SubmitWork_CorrectContributorRecorded() public {
+        uint256 deadline = block.timestamp + 7 days;
+        vm.prank(maintainer1);
+        uint256 bountyId = trustBounty.createBounty{value: 1 ether}(sampleSpecHash, deadline);
+
+        vm.prank(contributor1);
+        trustBounty.submitWork(bountyId, sampleCommitHash);
+
+        Bounty memory b = trustBounty.getBounty(bountyId);
+        assertEq(b.contributor, contributor1);
+    }
+
+    function test_SubmitWork_ExactCommitHashStored() public {
+        uint256 deadline = block.timestamp + 7 days;
+        vm.prank(maintainer1);
+        uint256 bountyId = trustBounty.createBounty{value: 1 ether}(sampleSpecHash, deadline);
+
+        vm.prank(contributor1);
+        trustBounty.submitWork(bountyId, sampleCommitHash);
+
+        Bounty memory b = trustBounty.getBounty(bountyId);
+        assertEq(b.commitHash, sampleCommitHash);
+    }
+
+    function test_SubmitWork_ClaimDeadlineCalculatedCorrectly() public {
+        uint256 deadline = block.timestamp + 7 days;
+        vm.prank(maintainer1);
+        uint256 bountyId = trustBounty.createBounty{value: 1 ether}(sampleSpecHash, deadline);
+
+        vm.warp(block.timestamp + 1 days);
+        uint256 submitTimestamp = block.timestamp;
+
+        vm.prank(contributor1);
+        trustBounty.submitWork(bountyId, sampleCommitHash);
+
+        Bounty memory b = trustBounty.getBounty(bountyId);
+        assertEq(b.claimDeadline, submitTimestamp + T_CLAIM);
+    }
+
+    function test_SubmitWork_EmitsWorkSubmittedEvent() public {
+        uint256 deadline = block.timestamp + 7 days;
+        vm.prank(maintainer1);
+        uint256 bountyId = trustBounty.createBounty{value: 1 ether}(sampleSpecHash, deadline);
+
+        uint256 expectedClaimDeadline = block.timestamp + T_CLAIM;
+
+        vm.expectEmit(true, true, false, true, address(trustBounty));
+        emit ITrustBounty.WorkSubmitted(bountyId, contributor1, sampleCommitHash, expectedClaimDeadline);
+
+        vm.prank(contributor1);
+        trustBounty.submitWork(bountyId, sampleCommitHash);
+    }
+
+    function test_SubmitWork_RewardRemainsUnchanged() public {
+        uint256 reward = 3.5 ether;
+        uint256 deadline = block.timestamp + 7 days;
+        vm.prank(maintainer1);
+        uint256 bountyId = trustBounty.createBounty{value: reward}(sampleSpecHash, deadline);
+
+        vm.prank(contributor1);
+        trustBounty.submitWork(bountyId, sampleCommitHash);
+
+        Bounty memory b = trustBounty.getBounty(bountyId);
+        assertEq(b.reward, reward);
+    }
+
+    function test_SubmitWork_AllLiabilitiesRemainUnchanged() public {
+        uint256 reward = 2 ether;
+        uint256 deadline = block.timestamp + 7 days;
+        vm.prank(maintainer1);
+        uint256 bountyId = trustBounty.createBounty{value: reward}(sampleSpecHash, deadline);
+
+        uint256 prevRewardLiability = trustBounty.totalRewardLiability();
+        uint256 prevBondLiability = trustBounty.totalBondLiability();
+        uint256 prevWithdrawableLiability = trustBounty.totalWithdrawableLiability();
+
+        vm.prank(contributor1);
+        trustBounty.submitWork(bountyId, sampleCommitHash);
+
+        assertEq(trustBounty.totalRewardLiability(), prevRewardLiability);
+        assertEq(trustBounty.totalBondLiability(), prevBondLiability);
+        assertEq(trustBounty.totalWithdrawableLiability(), prevWithdrawableLiability);
+    }
+
+    function test_SubmitWork_RevertZeroCommit() public {
+        uint256 deadline = block.timestamp + 7 days;
+        vm.prank(maintainer1);
+        uint256 bountyId = trustBounty.createBounty{value: 1 ether}(sampleSpecHash, deadline);
+
+        vm.prank(contributor1);
+        vm.expectRevert(TrustBounty.InvalidZeroCommit.selector);
+        trustBounty.submitWork(bountyId, bytes20(0));
+    }
+
+    function test_SubmitWork_RevertSubmissionAtExactDeadline() public {
+        uint256 deadline = block.timestamp + 7 days;
+        vm.prank(maintainer1);
+        uint256 bountyId = trustBounty.createBounty{value: 1 ether}(sampleSpecHash, deadline);
+
+        vm.warp(deadline);
+
+        vm.prank(contributor1);
+        vm.expectRevert(abi.encodeWithSelector(TrustBounty.DeadlinePassed.selector, deadline, deadline));
+        trustBounty.submitWork(bountyId, sampleCommitHash);
+    }
+
+    function test_SubmitWork_RevertSubmissionAfterDeadline() public {
+        uint256 deadline = block.timestamp + 7 days;
+        vm.prank(maintainer1);
+        uint256 bountyId = trustBounty.createBounty{value: 1 ether}(sampleSpecHash, deadline);
+
+        vm.warp(deadline + 100);
+
+        vm.prank(contributor1);
+        vm.expectRevert(abi.encodeWithSelector(TrustBounty.DeadlinePassed.selector, deadline, deadline + 100));
+        trustBounty.submitWork(bountyId, sampleCommitHash);
+    }
+
+    function test_SubmitWork_RevertNonexistentBounty() public {
+        vm.prank(contributor1);
+        vm.expectRevert(abi.encodeWithSelector(TrustBounty.BountyDoesNotExist.selector, 0));
+        trustBounty.submitWork(0, sampleCommitHash);
+
+        vm.prank(contributor1);
+        vm.expectRevert(abi.encodeWithSelector(TrustBounty.BountyDoesNotExist.selector, 999));
+        trustBounty.submitWork(999, sampleCommitHash);
+    }
+
+    function test_SubmitWork_RevertNonActiveBounty() public {
+        uint256 deadline = block.timestamp + 7 days;
+        vm.prank(maintainer1);
+        uint256 bountyId = trustBounty.createBounty{value: 1 ether}(sampleSpecHash, deadline);
+
+        vm.prank(contributor1);
+        trustBounty.submitWork(bountyId, sampleCommitHash);
+
+        // State is now SUBMITTED; attempting to submit again must revert with InvalidState(expected: ACTIVE, actual: SUBMITTED)
+        vm.prank(contributor2);
+        vm.expectRevert(abi.encodeWithSelector(TrustBounty.InvalidState.selector, State.ACTIVE, State.SUBMITTED));
+        trustBounty.submitWork(bountyId, bytes20(hex"9999999999999999999999999999999999999999"));
+    }
+
+    function test_SubmitWork_FailedSubmissionLeavesBountyUnchanged() public {
+        uint256 deadline = block.timestamp + 7 days;
+        uint256 reward = 1.5 ether;
+        vm.prank(maintainer1);
+        uint256 bountyId = trustBounty.createBounty{value: reward}(sampleSpecHash, deadline);
+
+        vm.prank(contributor1);
+        vm.expectRevert(TrustBounty.InvalidZeroCommit.selector);
+        trustBounty.submitWork(bountyId, bytes20(0));
+
+        Bounty memory b = trustBounty.getBounty(bountyId);
+        assertEq(b.contributor, address(0));
+        assertEq(b.commitHash, bytes20(0));
+        assertEq(b.claimDeadline, 0);
+        assertEq(uint8(b.state), uint8(State.ACTIVE));
+        assertEq(b.reward, reward);
     }
 }

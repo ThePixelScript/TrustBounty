@@ -171,8 +171,29 @@ contract TrustBounty is ITrustBounty, ReentrancyGuard {
         emit BountyCreated(bountyId, msg.sender, specHash, msg.value, submissionDeadline);
     }
 
-    function submitWork(uint256, bytes20) external override {
-        revert();
+    function submitWork(uint256 bountyId, bytes20 commitHash) external override {
+        if (bountyId == 0 || bountyId >= nextBountyId) {
+            revert BountyDoesNotExist(bountyId);
+        }
+
+        Bounty storage bounty = bounties[bountyId];
+        if (bounty.state != State.ACTIVE) {
+            revert InvalidState(State.ACTIVE, bounty.state);
+        }
+        if (commitHash == bytes20(0)) {
+            revert InvalidZeroCommit();
+        }
+        if (block.timestamp >= bounty.submissionDeadline) {
+            revert DeadlinePassed(bounty.submissionDeadline, block.timestamp);
+        }
+
+        bounty.contributor = msg.sender;
+        bounty.commitHash = commitHash;
+        uint256 claimDeadline = block.timestamp + T_claim;
+        bounty.claimDeadline = claimDeadline;
+        bounty.state = State.SUBMITTED;
+
+        emit WorkSubmitted(bountyId, msg.sender, commitHash, claimDeadline);
     }
 
     function cancelBounty(uint256) external override {
