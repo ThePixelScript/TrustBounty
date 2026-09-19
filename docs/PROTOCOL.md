@@ -1,5 +1,9 @@
 # TrustBounty Protocol
 
+> [!WARNING]
+> **HISTORICAL / SUPERSEDED DOCUMENTATION**
+> This document contains historical narrative and preliminary protocol design notes. For the authoritative, frozen smart contract specification, function signatures, state machine transitions, error handling, events, and accounting logic for TrustBounty v0.1, refer strictly to **[`docs/CONTRACT_SPEC.md`](CONTRACT_SPEC.md)**.
+
 ## Scope
 
 TrustBounty Protocol v0.1 defines the on-chain state machine, escrow mechanisms, and off-chain oracle interactions for trust-minimized software contribution settlement.

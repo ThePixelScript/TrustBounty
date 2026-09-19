@@ -1,110 +1,186 @@
-# TrustBounty Threat Model
+# TrustBounty Threat Model (v0.1)
 
-## Assets
+## 1. System Assets & Security Objectives
 
-1. **Bounty Escrow Funds**: Cryptocurrency or tokens deposited by the maintainer into the smart contract escrow.
-2. **Challenge Bonds**: Security deposits posted by either maintainer or contributor to initiate dispute arbitration.
-3. **Specification Commitment**: The cryptographic `specHash` representing the canonicalized acceptance requirements.
-4. **Submission Attribution**: The irrevocable binding between the contributor's identity and their submitted commit hash.
-5. **Execution Evidence**: The `evidenceHash` tying off-chain execution transcripts and artifacts to verification reports.
+TrustBounty protects the following core assets:
 
-## Actors
+1. **Bounty Escrow Funds**: Native ETH deposited by the maintainer, intended solely for disbursement to the contributor upon verified criteria satisfaction or refund to the maintainer upon failure.
+2. **Challenge Bonds**: Native ETH posted by a challenger during `REPORTED` state to fund secondary arbitration.
+3. **Withdrawable Balances**: Internal ledger credits (`withdrawableBalance[account]`) representing claimable native ETH.
+4. **Specification Commitment (`specHash`)**: The immutable 32-byte Keccak-256 hash representing the acceptance criteria, base commit, and container digest.
+5. **Work Attribution (`commitHash`)**: The immutable 20-byte Git SHA-1 commit identifier submitted by the contributor.
+6. **Execution Evidence (`evidenceHash`)**: Cryptographic commitments to off-chain test logs, container outputs, and execution transcripts.
+7. **Protocol Liveness**: The guarantee that funds cannot remain indefinitely frozen in any intermediate state.
 
-- **Maintainer**: Bounty creator who funds escrow, specifies `submissionDeadline`, and may act adversarially by refusing to settle, deploying flawed specifications, or submitting malicious challenges. Maintainers can voluntarily cancel an unclaimed bounty prior to submission (`cancelBounty()`), but cannot select or override verifiers per bounty.
-- **Contributor**: Developer who submits work and may act adversarially by submitting broken code, exploiting test suite weaknesses, or challenging valid rejections.
-- **Primary Verifier (V1)**: Off-chain verification oracle that executes tests; may fail by crashing, becoming unresponsive, or reporting incorrect verdicts.
-- **Secondary Verifier (V2)**: Off-chain dispute arbitration oracle; may fail through collusion, unresponsiveness, or incorrect determinations.
-- **Mempool Front-Runner**: Opportunistic actor monitoring the public transaction pool to copy submitted commit hashes and claim bounties.
-- **Keepers / Callers**: Untrusted parties who invoke timeout, progression, and settlement functions on-chain.
+---
 
-## Trust Assumptions
+## 2. Threat Actors & Adversarial Capabilities
 
-- **Off-Chain Verification Oracles**: V1 and V2 are trusted off-chain verification oracles executing containerized tests off-chain.
-- **Protocol-Level Verifier Immutability & Non-Upgradeability**: In v0.1, `PRIMARY_VERIFIER` and `SECONDARY_VERIFIER` are set at contract deployment and neither can be changed during the contract lifetime. Maintainers cannot override either verifier for an individual bounty, and the v0.1 contract is strictly non-upgradeable. No verifier registry, staking, governance, or proxy upgrade mechanisms exist. This prevents maintainers from selecting deliberately dead or collusive verifiers for individual bounties.
-- **Centralized Oracle Trust**: While per-bounty maintainer verifier selection is eliminated, V1 and V2 remain trusted off-chain oracles; compromised or colluding protocol-level verifiers remain a residual trust assumption.
-- **Dispute Oracle Finality**: V2 is trusted as the secondary dispute and fallback verification oracle in v0.1.
-- **Test Quality**: Test criteria quality and test harness correctness remain assumptions outside smart contract enforcement.
-- **External Git Hosting**: Git repository and commit availability depend on external hosting infrastructure.
-- **EVM Execution & Timestamps**: EVM state execution and block timestamps are trusted within normal protocol bounds.
+* **Malicious Maintainer**: Seeks to obtain free software contributions without paying, cancel bounties after work is submitted, tamper with requirements, or stall the state machine.
+* **Malicious Contributor**: Seeks to claim bounty escrow with non-compliant, partial, or malicious code, bypass test suites, front-run legitimate submissions, or challenge valid rejections without cause.
+* **Malicious / Compromised Primary Verifier (V1)**: Seeks to report false verdicts (`PASS` on bad code or `FAIL` on good code), fabricate execution evidence, crash repeatedly, or selectively ignore submissions.
+* **Malicious / Compromised Secondary Verifier (V2)**: Seeks to uphold collusive disputes, report fraudulent determinations, or remain offline to force timeout fallbacks.
+* **Mempool Front-Runner**: An observer monitoring the public transaction pool to copy submitted commit hashes and submit them with higher gas fees.
+* **Unpayable Smart Contract / Griefing Recipient**: An actor interacting through a smart contract that explicitly reverts upon receiving ETH (or consumes excessive gas) to block protocol settlement.
+* **Collusive Actors**: Counterparties acting in concert (e.g. Maintainer + V1, Contributor + V1, Maintainer + V2).
 
-## Threats
+---
 
-### 1. Front-Running Submissions
-In a public transaction pool, an adversary observing a `submitWork(commitHash)` transaction could submit the same commit hash with higher gas fees to claim the bounty.
-- *Status in v0.1*: Acknowledged protocol limitation. Private transaction routing can mitigate exposure, but full cryptographic prevention (commit-reveal) is deferred to v0.2.
+## 3. Explicit Trust Boundaries & Assumptions
 
-### 2. Abandoned ACTIVE Bounties (Maintainer Inaction)
-A maintainer may create and fund an `ACTIVE` bounty and subsequently disappear or abandon the project without cancelling it, potentially locking escrow funds indefinitely.
-- *Status in v0.1*: Mitigated by mandatory `submissionDeadline`. A contributor can submit work while `timestamp < submissionDeadline`. Before any submission is made, the maintainer may voluntarily cancel via `cancelBounty()`. If no submission exists once `timestamp >= submissionDeadline`, anyone can permissionlessly call `expireBounty()` to return escrow to the maintainer. A funded `ACTIVE` bounty cannot remain indefinitely locked if the maintainer disappears.
+| Dimension | Scope | Trust Model | Protocol Assumption & Boundary |
+| :--- | :--- | :--- | :--- |
+| **Smart Contract & EVM** | On-Chain | **Deterministic Code Execution** | Enforces state machine, deadlines, access control, liability conservation, and pull-payment mechanics. |
+| **Verifier Oracles (V1/V2)** | Off-Chain | **Bounded Trust (Centralized)** | Fixed at deployment (`PRIMARY_VERIFIER`, `SECONDARY_VERIFIER`). Verifiers are trusted to run tests faithfully, but authority is strictly bounded by deadlines, timeouts, symmetric challenges, and V2 fallback. |
+| **Container Environment** | Off-Chain | **Deterministic Commitment** | Pinned image digest (`image@sha256:...`) ensures environment immutability, but execution honesty relies on oracle integrity. |
+| **Git & Code Hosting** | Off-Chain | **External Infrastructure** | Commit history availability depends on external hosting platforms (e.g., GitHub, GitLab). |
+| **Test Quality & Coverage** | Off-Chain | **Maintainer Domain** | Passing tests only prove the criteria defined in the specification; the protocol cannot prove the absence of backdoors or semantic flaws outside the test suite. |
 
-### 3. Verifier Inaction (Liveness Failure)
-A primary verifier may never claim a submission (`SUBMITTED`), or claim it and never submit a report (`VERIFYING`), potentially freezing escrowed funds.
-- *Status in v0.1*: Mitigated by `T_claim` (permissionless escalation to `DISPUTED` for V2 fallback when `timestamp >= submissionTimestamp + T_claim`) and `T_v1` (permissionless escalation to `DISPUTED` for V2 fallback when `timestamp >= verificationDeadline`). When V1 times out, no result or `evidenceHash` is required or fabricated, and V1 permanently loses authority.
+---
 
-### 4. Verification Failures and Non-Determinism
-Flaky tests, non-deterministic environments, or crashed infrastructure could cause `ERROR` or `INCONCLUSIVE` verification executions.
-- *Status in v0.1*: Mitigated by eliminating all retry cycles and attempt counters (`MAX_ATTEMPTS`). When V1 reports `ERROR` or `INCONCLUSIVE`, the contract records the result, the `evidenceHash`, and the report timestamp, preserving the primary evidence commitment on-chain without discarding it. The bounty transitions directly to `DISPUTED` without requiring a challenge bond, where secondary verifier V2 conducts secondary evaluation, ensuring acyclic forward progress.
+## 4. Comprehensive Threat Matrix
 
-### 5. Malicious Verifier Reporting
-V1 may report a false `PASS` (harming maintainer) or false `FAIL` (harming contributor).
-- *Status in v0.1*: Mitigated by the bounded challenge mechanism, allowing the aggrieved party to stake the protocol-configured `challengeBond` while `timestamp < reportedTimestamp + T_challenge` and trigger secondary arbitration by V2.
+### 4.1 Malicious Maintainer
 
-### 6. Secondary Verifier Inaction
-V2 may become unresponsive after a dispute is initiated (`DISPUTED`), threatening to freeze funds during arbitration.
-- *Status in v0.1*: Mitigated by `T_v2` timeout (`timestamp >= disputeDeadline`):
-  - For challenge-originated disputes, resolves using V1's original report (`PASS` → `SETTLED`, `FAIL` → `REFUNDED`) and refunds 100% of the challenge bond to the challenger.
-  - For automatic recovery disputes (V1 `ERROR`/`INCONCLUSIVE`, V1 timeout, or claim timeout + V2 timeout), resolves to `REFUNDED` as unresolved-verification recovery. This does not assert contributor fault; it is a bounded MVP recovery rule to prevent trapped funds; total oracle outage can prevent contributor payment.
-  - Split settlement (e.g. 50/50) is strictly prohibited. This fallback is explicitly documented as a residual oracle/liveness limitation.
+#### Threat: Retroactive Requirement Alteration
+* **Asset at Risk**: Specification Commitment (`specHash`).
+* **Attack**: Maintainer attempts to modify acceptance criteria or add stricter tests after seeing a contributor's pull request.
+* **Mitigation**: `specHash` is committed at `createBounty()` and stored immutably. The contract provides no setter, update, or replacement function for `specHash`.
+* **Residual Trust**: Cryptographically enforced by on-chain hash commitment.
 
-### 7. Griefing via Unwarranted Challenges
-An actor may challenge a correct report solely to delay settlement or harass the counterparty.
-- *Status in v0.1*: Mitigated by protocol-level `challengeBond` parameter enforcing $B_{chal} \le \min(\text{reward}, \text{MAX\_BOND\_CAP})$ (maintainer cannot select an arbitrary bond) and limiting disputes to exactly one challenge round. If the challenge is rejected (V2 confirms V1), the bond is transferred to the party whose V1 result was confirmed. Challenger receives 100% back if upheld or if V2 times out.
+#### Threat: Cancellation After Submission
+* **Asset at Risk**: Bounty Escrow Funds.
+* **Attack**: Maintainer calls `cancelBounty()` after a contributor submits valid work to avoid payout.
+* **Mitigation**: `cancelBounty()` requires `bounty.state == State.ACTIVE`. Once `submitWork()` is executed, state advances to `SUBMITTED`, permanently barring `cancelBounty()`.
+* **Residual Trust**: Enforced by on-chain state transition rules.
 
-## Security Properties
+#### Threat: Unwarranted Challenge on PASS Verdict
+* **Asset at Risk**: Contributor Payout & Settlement Liveness.
+* **Attack**: Maintainer challenges a legitimate V1 `PASS` report solely to delay settlement.
+* **Mitigation**: Maintainer must deposit a challenge bond $B_{chal} = \min(\text{reward}, \text{MAX\_BOND\_CAP})$. When V2 confirms the `PASS` verdict, the maintainer's challenge bond is forfeited and transferred 100% to the contributor's withdrawable balance. Only one challenge round is permitted.
+* **Residual Trust**: Economic deterrence via bond forfeiture.
 
-- **Escrow Conservation**: Bounty funds cannot be extracted without reaching a valid terminal state (`SETTLED` or `REFUNDED`). Challenge bonds are strictly segregated and never used as bounty escrow.
-- **Protocol-Level Verifier Immutability & Non-Upgradeability**: `PRIMARY_VERIFIER` and `SECONDARY_VERIFIER` are fixed at contract deployment and immutable for the contract lifetime; neither can be changed during contract lifetime, maintainers cannot override verifiers per bounty, and the contract is strictly non-upgradeable.
-- **Strict DAG State Progression**: Elimination of all retry cycles guarantees monotonic, acyclic forward progression to terminal states (`SETTLED` or `REFUNDED`).
-- **Universal Liveness Guarantee**: Every non-terminal state has a finite, permissionlessly executable progression or recovery mechanism (governed by exact `timestamp >= deadline` checks), ensuring the protocol cannot deadlock. In particular, a funded `ACTIVE` bounty cannot remain indefinitely locked if the maintainer disappears, as anyone can permissionlessly execute `expireBounty()` when `timestamp >= submissionDeadline`.
-- **Primary Evidence Commitment Preservation**: When V1 calls `reportResult(ERROR)` or `reportResult(INCONCLUSIVE)`, the contract records the result, `evidenceHash`, and report timestamp on-chain before escalating to `DISPUTED`, ensuring the primary evidence commitment is preserved. When V1 times out, no fabricated result or `evidenceHash` is required.
-- **Oracle Authority Expiry**: V1 permanently loses all authority upon its timeout deadline (`timestamp >= verificationDeadline`) or upon transition to `DISPUTED`, preventing late reports or re-claims.
-- **Binary Dispute Outcomes**: V2 returns strictly `PASS` or `FAIL`.
-- **Bounded Challenge Bond & Transfer**: Challenge bonds are bounded by $B_{chal} \le \min(\text{reward}, \text{MAX\_BOND\_CAP})$, returned 100% on upheld challenges or V2 timeouts, and transferred to the confirmed counterparty upon rejected challenges.
-- **Unresolved-Verification Recovery**: Oracle timeouts and failures during automatic recovery exhaust to `REFUNDED` without asserting contributor fault.
-- **Specification Immutability**: The criteria and environment commitments are immutable after bounty activation, preventing retroactive requirement changes.
-- **Submission Immutability**: The first accepted submission binds the bounty to that contributor address for the current submission lifecycle; no concurrent or subsequent overwrites are permitted.
-- **Challenge Symmetry**: Maintainers can challenge `PASS` reports; contributors can challenge `FAIL` reports under identical structural conditions.
+#### Threat: Abandoned Bounty / Maintainer Disappearance
+* **Asset at Risk**: Protocol Liveness & Escrow Lockup.
+* **Attack**: Maintainer funds a bounty, no contributor submits work, and the maintainer disappears without cancelling.
+* **Mitigation**: Mandatory `submissionDeadline`. If no submission occurs before the deadline, anyone can permissionlessly call `expireBounty()` once `block.timestamp >= submissionDeadline` to refund the maintainer and close the bounty.
+* **Residual Trust**: Enforced via permissionless timeout progression.
 
-## Mitigations
+---
 
-| Threat | Protocol Mitigation |
-| :--- | :--- |
-| Abandoned ACTIVE Bounty Deadlock | Mandatory `submissionDeadline`; permissionless `expireBounty()` refund (`timestamp >= submissionDeadline`) if no submission exists. |
-| Voluntary Bounty Cancellation | Maintainer `cancelBounty()` allowed while `ACTIVE` and before any submission exists. |
-| Unclaimed Submission Deadlock | Permissionless `T_claim` timeout (`timestamp >= deadline`) escalates to `DISPUTED` for V2 fallback. |
-| Unresponsive Primary Verifier | Permissionless `T_v1` timeout (`timestamp >= deadline`) escalates to `DISPUTED` for V2 fallback; V1 loses authority without requiring fabricated evidence. |
-| Infrastructure Failures & Errors | V1 `ERROR` or `INCONCLUSIVE` records result, `evidenceHash`, and timestamp on-chain and transitions directly to `DISPUTED` for V2 fallback verification without retry loops. |
-| Erroneous V1 Verdicts | Bounded challenge window `T_challenge` (`timestamp < deadline`) with secondary verification by V2. |
-| Unresponsive Secondary Verifier | Permissionless `T_v2` dispute timeout (`timestamp >= deadline`) falling back to V1 verdict or unresolved-verification recovery. |
-| Malicious Maintainer Verifier Selection | Protocol-level immutable verifier identities (`PRIMARY_VERIFIER`, `SECONDARY_VERIFIER`); non-upgradeable contract; cannot be overridden per bounty. |
-| Specification Tampering | RFC 8785 canonicalization and Keccak-256 `specHash` commitment. |
-| Environment Drift | Mandatory container image commitment with SHA-256 digest (`image@sha256:...`). |
-| Public Mempool Exposure | Private RPC submission recommendation (commit-reveal deferred to v0.2). |
+### 4.2 Malicious Contributor
 
-## Residual Risks
+#### Threat: Submission of Non-Compliant or Broken Code
+* **Asset at Risk**: Maintainer Escrow Funds.
+* **Attack**: Contributor submits broken code hoping the maintainer or verifier fails to notice.
+* **Mitigation**: Verification is performed by containerized execution against the exact committed `specHash`. V1 executes the test suite in isolation and reports `FAIL`.
+* **Residual Trust**: Trusted verifier execution and test suite rigor.
 
-1. **Oracle Trust Dependency**: Both V1 and V2 operate as trusted off-chain verification oracles. A collusive or compromised oracle pair can produce incorrect settlement.
-2. **Centralized Protocol Verifier Trust**: Verifier identities are fixed at deployment rather than selected per-bounty by maintainers, mitigating per-bounty maintainer sybil selection. However, compromised or colluding protocol-level verifiers remain a fundamental residual trust assumption in this centralized oracle model.
-3. **Public Mempool Front-Running**: The protocol does not cryptographically eliminate front-running in public mempools in v0.1.
-4. **Test Quality Assumption**: Passing tests verify only the criteria defined in the specification; they do not guarantee absence of backdoors, regressions outside test coverage, or broader specification gaming.
-5. **Execution Commitment vs. Execution Proof**: Pinned execution-environment commitment (`image@sha256:...`) guarantees specification integrity, but is not cryptographic proof of execution honesty by the off-chain oracle.
-6. **External Git Hosting Dependency**: The protocol relies on third-party Git hosting platforms for source tree and commit availability.
-7. **Secondary Verifier Timeout Fallback**: If V2 times out during a dispute (`timestamp >= disputeDeadline`), falling back to V1's verdict inherently re-trusts V1 despite an active challenge.
-8. **Total Oracle Outage Risk**: Total oracle outage (V1 failure/timeout + V2 timeout) triggers unresolved-verification recovery, returning funds to the maintainer without asserting contributor fault, which can prevent payment for valid work during severe oracle infrastructure failure. No 50/50 split settlement is supported.
+#### Threat: Unwarranted Challenge on FAIL Verdict
+* **Asset at Risk**: Maintainer Escrow & Settlement Latency.
+* **Attack**: Contributor challenges a valid `FAIL` verdict to force arbitration or grief the maintainer.
+* **Mitigation**: Contributor must deposit the required challenge bond $B_{chal}$. When V2 confirms the `FAIL` verdict, the contributor's bond is forfeited and transferred 100% to the maintainer.
+* **Residual Trust**: Economic deterrence via bond forfeiture.
 
-## Open Questions
+#### Threat: Multiple Racing Submissions / Commit Tampering
+* **Asset at Risk**: Submission Attribution.
+* **Attack**: Contributor attempts to overwrite an existing submission or submit multiple conflicting commits.
+* **Mitigation**: `submitWork()` transitions state from `ACTIVE` to `SUBMITTED`. Any subsequent call to `submitWork()` reverts with `InvalidState(ACTIVE, SUBMITTED)`. In v0.1, exactly one contributor and commit hash is bound per bounty.
+* **Residual Trust**: Enforced by smart contract single-contributor binding.
 
-- Implementation of a cryptographic commit-reveal mechanism for work submission in v0.2.
-- Decentralized oracle selection, staking, or multi-verifier consensus to reduce single-oracle trust.
-- Integration of zero-knowledge proofs or trusted execution environments (TEEs) to provide verifiable execution traces.
-- Empirical modeling of dynamic challenge bond pricing to balance dispute accessibility with griefing resistance.
+---
+
+### 4.3 Malicious or Failed Primary Verifier (V1)
+
+#### Threat: Verifier Inaction / Unresponsiveness (Claim Timeout)
+* **Asset at Risk**: Protocol Liveness.
+* **Attack**: V1 goes offline or refuses to claim a submitted bounty.
+* **Mitigation**: `claimDeadline = block.timestamp + T_claim`. If V1 does not call `claimVerification()` before the deadline, anyone can permissionlessly call `expireClaim()`, advancing the bounty directly to `DISPUTED` for V2 fallback without requiring a challenge bond.
+* **Residual Trust**: Guaranteed by on-chain deadline escalation to V2.
+
+#### Threat: Verification Timeout / Mid-Execution Failure
+* **Asset at Risk**: Protocol Liveness.
+* **Attack**: V1 claims a bounty (`VERIFYING`) but crashes, hangs, or refuses to report.
+* **Mitigation**: `verificationDeadline = block.timestamp + T_v1`. If V1 does not report within `T_v1`, anyone can call `timeoutV1()`, escalating directly to `DISPUTED` without requiring or fabricating a report. V1 permanently loses authority.
+* **Residual Trust**: Guaranteed by on-chain DAG state progression.
+
+#### Threat: False Report / Corrupt Verdict
+* **Asset at Risk**: Escrow Funds.
+* **Attack**: V1 maliciously reports `PASS` on failing code or `FAIL` on passing code.
+* **Mitigation**: Symmetric challenge window `T_challenge`. The maintainer can challenge a false `PASS` (`challengePass()`), and the contributor can challenge a false `FAIL` (`challengeFail()`), escalating to secondary verifier V2.
+* **Residual Trust**: Relies on V2 independence and integrity.
+
+#### Threat: Infrastructure Crashes & Non-Determinism (`ERROR` / `INCONCLUSIVE`)
+* **Asset at Risk**: State Consistency.
+* **Attack**: Flaky tests or container environment crashes produce execution errors.
+* **Mitigation**: V1 reports `ERROR` or `INCONCLUSIVE`. The contract records the outcome and `evidenceHash` on-chain, preserving the evidence trail, and escalates directly to `DISPUTED` for secondary arbitration without requiring a challenge bond.
+* **Residual Trust**: Guaranteed by on-chain single-attempt recording and automatic V2 escalation.
+
+---
+
+### 4.4 Malicious or Failed Secondary Verifier (V2)
+
+#### Threat: Secondary Verifier Inaction / Timeout
+* **Asset at Risk**: Dispute Liveness.
+* **Attack**: V2 becomes unresponsive during dispute arbitration.
+* **Mitigation**: `disputeDeadline = block.timestamp + T_v2`. If V2 does not report before the deadline, anyone can call `finalizeV2Timeout()`:
+  * If `origin == CHALLENGE_PASS`: Fallback to V1 `PASS` (settles to contributor, refunds 100% of maintainer bond).
+  * If `origin == CHALLENGE_FAIL`: Fallback to V1 `FAIL` (refunds to maintainer, refunds 100% of contributor bond).
+  * If Automatic Dispute (`V1_ERROR`, `V1_INCONCLUSIVE`, `V1_TIMEOUT`, `CLAIM_TIMEOUT`): Resolves to `REFUNDED` as unresolved-verification recovery (maintainer refunded; no bond).
+* **Residual Trust**: Total oracle outage (V1 + V2 failure) returns funds to maintainer. Documented residual protocol limitation.
+
+#### Threat: Non-Binary Outcome Submission
+* **Asset at Risk**: State Machine Integrity.
+* **Attack**: V2 attempts to report `ERROR`, `INCONCLUSIVE`, or `NONE`.
+* **Mitigation**: `reportV2()` validates `outcome == Outcome.PASS || outcome == Outcome.FAIL`; otherwise reverts with `InvalidVerificationOutcome(outcome)`.
+* **Residual Trust**: Enforced by contract enum validation.
+
+---
+
+### 4.5 Collusion Scenarios
+
+#### Threat: Maintainer + V1 Collusion
+* **Scenario**: Maintainer conspires with V1 to always report `FAIL` on valid submissions.
+* **Mitigation**: Contributor can challenge via `challengeFail()` posting $B_{chal}$, bringing the dispute to independent secondary verifier V2.
+* **Residual Trust**: Assumes V2 is independent of the collusion ring.
+
+#### Threat: Contributor + V1 Collusion
+* **Scenario**: Contributor conspires with V1 to report `PASS` on broken code.
+* **Mitigation**: Maintainer can challenge via `challengePass()` posting $B_{chal}$, bringing the dispute to independent secondary verifier V2.
+* **Residual Trust**: Assumes V2 is independent of the collusion ring.
+
+#### Threat: V1 + V2 Collusion (Dual Oracle Compromise)
+* **Scenario**: Both V1 and V2 are controlled by the same malicious entity.
+* **Mitigation**: Deployment-level invariant enforces `PRIMARY_VERIFIER != SECONDARY_VERIFIER`. In v0.1, dual oracle collusion cannot be prevented on-chain if both private keys are compromised.
+* **Residual Trust**: Fundamental residual trust assumption of the centralized dual-oracle model in v0.1.
+
+---
+
+### 4.6 Architectural & Systemic Threats
+
+#### Threat: Public Mempool Front-Running
+* **Attack**: An attacker observes a contributor's `submitWork(commitHash)` transaction in the public mempool and submits the same commit hash with higher gas.
+* **Mitigation**: In v0.1, submitters are advised to use private RPC relays (e.g. Flashbots Protect). Cryptographic commit-reveal schemes are deferred to v0.2.
+* **Residual Trust**: Off-chain transaction routing in v0.1.
+
+#### Threat: Reentrancy and Payout Hijacking
+* **Attack**: A malicious contract attempts reentrancy during claim or settlement calls.
+* **Mitigation**:
+  * Terminal transitions (`cancelBounty`, `expireBounty`, `finalizeReport`, `reportV2`, `finalizeV2Timeout`) do NOT perform external calls; they credit `withdrawableBalance`.
+  * `withdraw()` and `withdrawTo()` follow strict Checks-Effects-Interactions (CEI) and use OpenZeppelin's `nonReentrant` modifier.
+* **Residual Trust**: Mitigated on-chain via CEI and ReentrancyGuard.
+
+#### Threat: Denial of Service via Unpayable Recipient
+* **Attack**: Maintainer or contributor deploys a contract without a `receive()` or `fallback()` function, or with an explicit `revert()`, attempting to block settlement transactions.
+* **Mitigation**: Pull-payment architecture ensures terminalization does not make external ETH calls, creating credits in `withdrawableBalance` instead. If a contract recipient cannot receive plain ETH, it can invoke `withdrawTo(destination)` to route its own credit to a designated payout address.
+* **Residual Trust**: Terminal state resolution cannot be blocked by unpayable recipients because terminalization makes no external calls.
+
+#### Threat: Forced ETH Injection (`selfdestruct` / Mining Rewards)
+* **Attack**: An attacker forcibly sends ETH to the contract via `selfdestruct` to manipulate balance checks.
+* **Mitigation**: The contract tracks internal liabilities (`totalRewardLiability`, `totalBondLiability`, `totalWithdrawableLiability`) and never relies on strict equality `address(this).balance == liabilities`. Forced ETH remains unallocated surplus.
+* **Residual Trust**: Mitigated on-chain via internal liability ledger tracking.
+
+#### Threat: Timestamp Manipulation by Validators
+* **Attack**: Validators manipulate `block.timestamp` within allowable consensus boundaries to prematurely pass deadlines.
+* **Mitigation**: All duration parameters (`T_claim`, `T_v1`, `T_challenge`, `T_v2`) must be configured to realistic operational durations (e.g. hours or days) that exceed bounded validator timestamp drift.
+* **Residual Trust**: Standard EVM block timestamp consensus trust model.
