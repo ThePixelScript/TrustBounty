@@ -44,27 +44,27 @@ Acceptance specifications conform to the closed JSON Schema v1.1:
 
 ### 2.2 Canonicalization and On-Chain Commitment
 
-Before on-chain bounty creation, the JSON specification is canonicalized using RFC 8785 (JSON Canonicalization Scheme - JCS) to eliminate whitespace and key-order ambiguity:
+Before on-chain bounty creation, the JSON specification is canonicalized using RFC 8785 (JSON Canonicalization Scheme - JCS) and hashed entirely off-chain:
 
 $$\text{specHash} = \text{Keccak-256}(\text{RFC8785}(\text{specification}))$$
 
-The resulting 32-byte hash (`bytes32`) is committed to the smart contract via `createBounty(specHash, submissionDeadline)`.
+The resulting 32-byte hash (`bytes32`) is committed to the smart contract via `createBounty(specHash, submissionDeadline)`. The smart contract receives an opaque hash and does NOT validate, parse, or canonicalize JSON on-chain.
 
 ---
 
 ## 3. Submitted Work Artifact
 
 * **Work Identifier**: A single Git commit SHA-1 (`bytes20 commitHash`).
-* **Protocol Handling**: The smart contract stores `commitHash` as an opaque 20-byte value.
-* **Repository Checkout**: The verifier pulls the specified repository (`repository.owner/repository.name`) and checks out the exact submitted `commitHash`.
+* **Protocol Handling**: The smart contract validates only that `commitHash != bytes20(0)` and stores it as an opaque 20-byte value. The contract does not verify repository membership, Git object validity, tree contents, or commit ancestry. Furthermore, `reportVerification()` does NOT accept a second commit hash from V1 for an on-chain equality check.
+* **Repository Checkout**: The off-chain verifier is responsible for pulling the specified repository (`repository.owner/repository.name`) and checking out the exact submitted `commitHash`.
 
 ---
 
 ## 4. Verification Execution Environment
 
-Verification must execute inside an isolated OCI/Docker container initialized from the pinned `environment.image` digest:
+Verification executes inside an isolated OCI/Docker container initialized from the pinned `environment.image` digest:
 
-1. **Image Verification**: Verifier must pull and verify the exact SHA-256 image digest.
+1. **Image Verification**: Verifier must pull and verify the exact SHA-256 image digest. The digest binds image filesystem contents; however, host kernel, hardware architecture, CPU scheduling, and external runtime dependencies can still affect execution.
 2. **Process Isolation**: Execution occurs in an isolated sandbox with restricted resources (memory limit, CPU quota, execution timeout).
 3. **Network Constraints**: Network access may be restricted to prevent external data leaks or non-deterministic remote calls during test execution.
 4. **Deterministic Initialization**: The repository is cloned, and the submitted commit is checked out cleanly without local dirty artifacts.
@@ -159,6 +159,9 @@ Verifiers categorize outcomes into four enumeration values:
 ---
 
 ## 8. Verifier Roles & Execution Workflows
+
+> [!NOTE]
+> **On-Chain Authorization**: The smart contract authorizes V1 and V2 solely via fixed deployment-level addresses checking `msg.sender == PRIMARY_VERIFIER` and `msg.sender == SECONDARY_VERIFIER`. The contract performs no cryptographic signature verification, no `ecrecover`, and no EIP-712 verification.
 
 ### 8.1 Primary Verifier (V1)
 1. **Claiming**: Listens for `WorkSubmitted` event. Invokes `claimVerification(bountyId)` while `block.timestamp < claimDeadline`.

@@ -10,7 +10,7 @@ This document records the architectural and protocol design decisions for TrustB
 * **Context**: Earlier bounty protocols employed retry loops (allowing multiple submission attempts or re-claims) with `MAX_ATTEMPTS` counters. This introduced unbounded latency, complex state-tracking, and edge cases where funds could remain locked during verifier deadlock.
 * **Decision**: Adopt a strict 7-state DAG (`ACTIVE`, `SUBMITTED`, `VERIFYING`, `REPORTED`, `DISPUTED`, `SETTLED`, `REFUNDED`) without retry cycles. `SETTLED` and `REFUNDED` are strictly terminal sinks.
 * **Alternatives Considered**: Multi-attempt state machines with retry transitions back to `SUBMITTED` or `ACTIVE`.
-* **Consequences**: Monotonic forward progression is guaranteed; every non-terminal state has a finite, permissionlessly executable progression or recovery mechanism.
+* **Consequences**: Enforces monotonic forward progression; every non-terminal state has a finite, permissionlessly executable progression or recovery mechanism.
 
 ---
 
@@ -80,7 +80,7 @@ This document records the architectural and protocol design decisions for TrustB
 * **Context**: Container tags (e.g. `node:latest`) are mutable and cause execution non-determinism as underlying images update over time.
 * **Decision**: Require container images to be pinned strictly by cryptographic SHA-256 digest (`<image-reference>@sha256:<64-hex>`).
 * **Alternatives Considered**: Tag-based references; VM image snapshots.
-* **Consequences**: Controls image and environment drift across independent verification oracles, though complete execution reproducibility still depends on test determinism and network isolation.
+* **Consequences**: Controls image and environment drift by binding image filesystem contents; however, host kernel, hardware architecture, CPU scheduling, network access, and external runtime dependencies can still affect execution across hosts.
 
 ---
 

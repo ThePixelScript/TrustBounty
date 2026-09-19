@@ -15,7 +15,7 @@ Combining smart contracts, continuous integration (CI) runners, and Docker conta
 * **CI/CD container runners** (e.g. GitHub Actions, GitLab CI) are well-established engineering tools.
 * **Oracles** (e.g. Chainlink, UMA) routinely bridge off-chain data to on-chain state.
 
-The research problem TrustBounty tackles is: **How can a decentralized protocol achieve deterministic, liveness-guaranteed, and dispute-resilient software bounty settlement without creating retry deadlocks, griefing vulnerabilities, or unbounded oracle trust?**
+The research problem TrustBounty tackles is: **How can a decentralized protocol achieve deterministic, dispute-resilient software bounty settlement without creating retry deadlocks, griefing vulnerabilities, or unbounded oracle trust?**
 
 ---
 
@@ -24,7 +24,7 @@ The research problem TrustBounty tackles is: **How can a decentralized protocol 
 TrustBounty v0.1 positions itself as a **trust-minimized oracle coordination protocol**, explicitly distinguishing its scope from cryptographic proof systems:
 
 * **What TrustBounty IS**:
-  * An acyclic 7-state DAG state machine guaranteeing finite, deterministic terminalization (`SETTLED` or `REFUNDED`) under all oracle crash and timeout scenarios.
+  * An acyclic 7-state DAG state machine providing permissionless timeout progression to deterministic terminalization (`SETTLED` or `REFUNDED`) once deadlines expire, preventing indefinite contract deadlock across oracle crash scenarios.
   * A dual-verifier architecture (`PRIMARY_VERIFIER` and `SECONDARY_VERIFIER`) with bounded symmetric challenge bonds ($B_{chal} = \min(\text{reward}, \text{MAX\_BOND\_CAP})$) to deter griefing while enabling error correction.
   * A non-blocking pull-payment architecture with strict internal liability conservation.
 * **What TrustBounty IS NOT**:
@@ -38,7 +38,7 @@ TrustBounty v0.1 positions itself as a **trust-minimized oracle coordination pro
 
 TrustBounty’s future empirical evaluation will investigate five specific research questions:
 
-* **RQ1 (Liveness & Deadlock Resistance)**: Does the acyclic 7-state DAG state machine eliminate escrow lockups across all single-oracle and dual-oracle failure modes compared to retry-based state machines?
+* **RQ1 (Deadlock Resistance & Timeout Progression)**: Does the acyclic 7-state DAG state machine prevent indefinite escrow lockups via permissionless timeout fallbacks across single-oracle and dual-oracle failure modes compared to retry-based state machines?
 * **RQ2 (Economic Efficiency of Challenge Bonds)**: Does bounding challenge bonds by $B_{chal} = \min(\text{reward}, \text{MAX\_BOND\_CAP})$ deter malicious challenges while keeping dispute arbitration economically accessible for contributors?
 * **RQ3 (Verifier Divergence & Reproducibility)**: What is the empirical divergence rate between independent off-chain verifiers (V1 vs. V2) executing identical RFC 8785-canonicalized specifications across standardized open-source benchmarks?
 * **RQ4 (On-Chain & Off-Chain Overhead)**: What are the gas costs, settlement latency, and compute/storage requirements across each execution path (happy path, unchallenged rejection, challenge-upheld, challenge-rejected, and timeout fallback)?
@@ -68,7 +68,7 @@ TrustBounty’s future empirical evaluation will investigate five specific resea
    * Evaluate verifier determinism, execution consistency, and coverage thresholds across thousands of commits.
 2. **Adversarial Fault-Injection Testbed**:
    * Simulate flaky tests, non-deterministic timers, memory exhaustion, network drops, and corrupted oracle nodes.
-   * Verify that the smart contract advances to `DISPUTED` and settles cleanly without trapped escrow.
+   * Verify that the smart contract advances to `DISPUTED` and reaches terminal states cleanly via verifier report or permissionless timeout.
 
 ---
 
@@ -79,8 +79,10 @@ To maintain rigorous scientific and engineering integrity, TrustBounty explicitl
 * **Engineering Integration vs. Research Contribution**:
   * *Engineering Integration*: Wiring Foundry smart contracts, Docker containers, GitHub webhooks, and TypeScript serializers.
   * *Research Contribution*: Formal analysis of the acyclic state machine, game-theoretic analysis of symmetric challenge bonds, and empirical characterization of off-chain containerized verifier agreement.
-* **No Cryptographic Primitive Claims**: The protocol utilizes standard, existing cryptography (Keccak-256, Git SHA-1, RFC 8785).
+* **No Cryptographic Primitive Claims**: The protocol utilizes standard, existing cryptography (Keccak-256, off-chain Git SHA-1, RFC 8785).
 * **Current Limitations in v0.1**:
-  * Designated, centralized oracle accounts (deployment-immutable V1/V2).
+  * Designated, centralized oracle accounts (deployment-immutable V1/V2 checked via `msg.sender == PRIMARY_VERIFIER` / `msg.sender == SECONDARY_VERIFIER`, with no cryptographic signature or EIP-712 verification on-chain).
+  * Opaque commit identifiers: `commitHash` is an opaque `bytes20` parameter checked only for non-zero; no Git tree or object parsing occurs on-chain.
+  * Container reproducibility constraints: While digest pinning fixes container rootfs bits, host kernel, CPU architecture, scheduler, and runtime flags can cause divergent test outcomes.
   * Susceptibility to public mempool front-running (commit-reveal deferred to v0.2).
   * Single-contributor binding per bounty (multi-contributor competition deferred to v0.2).

@@ -39,36 +39,36 @@ In v0.1, the protocol supports a single maintainer escrowing funds for a defined
            │ claimVerification()                       │         │
            │ (timestamp < T_claim)                     │         │
            ▼                                           │         │
-       ┌───────────────┐  timeoutV1() (ts >= T_v1)     │         │
-       │   VERIFYING   ├─► or reportResult(ERR/INCONC) │         │
-       └───┬───────────┘  (V1 loses authority)         │         │
-           │                                           │         │
-           │ reportResult(PASS/FAIL)                   │         │
-           │ (timestamp < T_v1)                        │         │
-           ▼                                           ▼         │
-       ┌───────────────┐  challenge(bond)             ┌─────────┐│
-       │   REPORTED    ├─────────────────────────────►│         ││
-       └───┬───────────┘  (timestamp < T_challenge)   │         ││
-           │                                          │         ││
-           ├─► PASS: finalize() (ts >= T_chal) ──► SETTLED      ││
-           ├─► FAIL: finalize() (ts >= T_chal) ──► REFUNDED ◄───┼┤
-           │                                          │         ││
-           ▼                                          │DISPUTED ││
-                                                      │         ││
-           ┌──────────────────────────────────────────┤         ││
-           │                                          │         ││
-           ├─► resolveDispute(PASS) (ts < T_v2) ──► SETTLED     ││
-           ├─► resolveDispute(FAIL) (ts < T_v2) ──► REFUNDED ◄──┼┘
-           ├─► timeoutV2() (ts >= T_v2):              │         │
-           │   ├── V1 was PASS ───────────────────► SETTLED     │
-           │   └── V1 was FAIL / Auto-Recovery ───► REFUNDED ◄──┘
+        ┌───────────────┐  timeoutV1() (ts >= T_v1)     │         │
+        │   VERIFYING   ├─► or reportVerification(ERR/  │         │
+        └───┬───────────┘       INCONC)                 │         │
+            │                                           │         │
+            │ reportVerification(PASS/FAIL)             │         │
+            │ (timestamp < T_v1)                        │         │
+            ▼                                           ▼         │
+        ┌───────────────┐  challengePass / Fail(bond)  ┌─────────┐│
+        │   REPORTED    ├─────────────────────────────►│         ││
+        └───┬───────────┘  (timestamp < T_challenge)   │         ││
+            │                                          │         ││
+            ├─► PASS: finalizeReport() (ts >= T_chal) ─► SETTLED ││
+            ├─► FAIL: finalizeReport() (ts >= T_chal) ─► REFUNDED◄┼┤
+            │                                          │         ││
+            ▼                                          │DISPUTED ││
+                                                       │         ││
+            ┌──────────────────────────────────────────┤         ││
+            │                                          │         ││
+            ├─► reportV2(PASS) (ts < T_v2) ──────────► SETTLED   ││
+            ├─► reportV2(FAIL) (ts < T_v2) ──────────► REFUNDED ◄┼┘
+            ├─► finalizeV2Timeout() (ts >= T_v2):      │         │
+            │   ├── CHALLENGE_PASS ──────────────────► SETTLED   │
+            │   └── CHALLENGE_FAIL / Auto-Recovery ──► REFUNDED ◄┘
 ```
 
 ## State Machine
 
 The protocol defines exactly seven states. `SETTLED` and `REFUNDED` are strictly terminal. No `EXPIRED` state exists.
 
-With the elimination of all retry cycles, the protocol state graph is strictly a Directed Acyclic Graph (DAG) with guaranteed acyclic progression to terminal states (`SETTLED` or `REFUNDED`). Every non-terminal state has a finite, permissionlessly executable progression or recovery mechanism. In particular, a funded `ACTIVE` bounty cannot remain indefinitely locked if the maintainer disappears, because anyone can permissionlessly trigger an expiry refund via `expireBounty()` once the submission deadline has elapsed (`timestamp >= submissionDeadline`).
+With the elimination of all retry cycles, the protocol state graph is strictly a Directed Acyclic Graph (DAG) with guaranteed acyclic progression to terminal states (`SETTLED` or `REFUNDED`). Every non-terminal state has a finite, permissionlessly executable progression or recovery mechanism. The protocol provides permissionless progression to terminal states after the relevant deadlines, but this does not guarantee successful verification or contributor payment when verifier infrastructure fails.
 
 All timeout and execution conditions adhere strictly to standardized inequality rules:
 - An action is allowed if and only if `timestamp < deadline`.
@@ -93,95 +93,95 @@ All timeout and execution conditions adhere strictly to standardized inequality 
    - Effects: The first accepted submission binds the bounty to that contributor address and commit hash for the current submission lifecycle. Sets `submissionTimestamp = timestamp` and `claimDeadline = submissionTimestamp + T_claim`. In v0.1, only one submission is permitted per bounty.
 
 2. **`ACTIVE → REFUNDED` (Voluntary Bounty Cancellation)**:
-   - Triggered by `cancelBounty()`.
+   - Triggered by `cancelBounty(bountyId)`.
    - Authorized caller: Maintainer.
    - Precondition: Bounty is in `ACTIVE` state before any submission has been made (voluntary cancellation).
-   - Effects: Returns the deposited bounty escrow to the maintainer.
+   - Effects: Credits the deposited bounty reward to `withdrawableBalance[maintainer]`.
 
 3. **`ACTIVE → REFUNDED` (Submission Deadline Expiry)**:
-   - Triggered by `expireBounty()`.
+   - Triggered by `expireBounty(bountyId)`.
    - Authorized caller: Permissionless (anyone).
    - Precondition: Bounty is in `ACTIVE` state, no submission exists, and `timestamp >= submissionDeadline`.
-   - Effects: Returns the deposited bounty escrow to the maintainer. Guarantees that a funded `ACTIVE` bounty cannot remain indefinitely locked if the maintainer disappears.
+   - Effects: Credits the deposited bounty reward to `withdrawableBalance[maintainer]`. Prevents a funded `ACTIVE` bounty from remaining indefinitely open if no submission is made before the deadline.
 
 4. **`SUBMITTED → VERIFYING`**:
-   - Triggered by `claimVerification()`.
-   - Authorized caller: Primary Verifier (V1).
+   - Triggered by `claimVerification(bountyId)`.
+   - Authorized caller: Primary Verifier (`PRIMARY_VERIFIER`).
    - Precondition: `timestamp < submissionTimestamp + T_claim`.
    - Effects: Primary verifier takes custody of verification; sets `claimTimestamp = timestamp` and `verificationDeadline = claimTimestamp + T_v1`.
 
 5. **`SUBMITTED → DISPUTED` (Claim Expiry Fallback)**:
-   - Triggered by `expireClaim()`.
+   - Triggered by `expireClaim(bountyId)`.
    - Authorized caller: Permissionless (anyone).
    - Precondition: `timestamp >= submissionTimestamp + T_claim`.
-   - Effects: Prevents verifier deadlock when V1 goes offline or fails to claim. Automatically advances to `DISPUTED` for fallback verification by secondary verifier V2 without returning to `ACTIVE` or requiring a challenge bond. V1 loses authority. Sets `disputeTimestamp = timestamp` and `disputeDeadline = disputeTimestamp + T_v2`.
+   - Effects: Prevents verifier deadlock when V1 goes offline or fails to claim. Automatically advances to `DISPUTED` (`origin = CLAIM_TIMEOUT`) for fallback verification by secondary verifier V2 without returning to `ACTIVE` or requiring a challenge bond. V1 loses authority. Sets `disputeTimestamp = timestamp` and `disputeDeadline = disputeTimestamp + T_v2`.
 
 6. **`VERIFYING → REPORTED`**:
-   - Triggered by `reportResult(result, evidenceHash)`.
-   - Authorized caller: Primary Verifier (V1).
-   - Result values: Strictly `PASS` or `FAIL`.
-   - Precondition: `timestamp < verificationDeadline`.
-   - Effects: Sets `reportedTimestamp = timestamp` and `challengeDeadline = reportedTimestamp + T_challenge`.
+   - Triggered by `reportVerification(bountyId, outcome, evidenceHash)`.
+   - Authorized caller: Primary Verifier (`PRIMARY_VERIFIER`).
+   - Outcome values: Strictly `PASS` or `FAIL`.
+   - Precondition: `timestamp < verificationDeadline`, nonzero `evidenceHash`.
+   - Effects: Sets `v1Outcome = outcome`, `v1EvidenceHash = evidenceHash`, `reportedTimestamp = timestamp`, and `challengeDeadline = reportedTimestamp + T_challenge`.
 
 7. **`VERIFYING → DISPUTED` (V1 Timeout or Infrastructure Failure)**:
    - Triggered by:
-     - `reportResult(result, evidenceHash)`:
-       - Authorized caller: Primary Verifier (V1).
-       - Precondition: `timestamp < verificationDeadline`, with `result` equal to `ERROR` or `INCONCLUSIVE`.
-       - Effects: The contract records the result (`ERROR` or `INCONCLUSIVE`), the provided `evidenceHash`, and the report timestamp (`reportedTimestamp = timestamp`), ensuring the primary evidence commitment is preserved on-chain and not discarded. State transitions directly to `DISPUTED` without requiring a challenge bond. Secondary verifier V2 handles fallback verification. V1 permanently loses authority and cannot reclaim the bounty or submit late reports. Sets `disputeTimestamp = timestamp` and `disputeDeadline = disputeTimestamp + T_v2`.
-     - `timeoutV1()`:
+     - `reportVerification(bountyId, outcome, evidenceHash)`:
+       - Authorized caller: Primary Verifier (`PRIMARY_VERIFIER`).
+       - Precondition: `timestamp < verificationDeadline`, nonzero `evidenceHash`, with `outcome` equal to `ERROR` or `INCONCLUSIVE`.
+       - Effects: The contract records `v1Outcome` (`ERROR` or `INCONCLUSIVE`), the provided `v1EvidenceHash`, and `reportedTimestamp = timestamp`, ensuring the primary evidence commitment is preserved on-chain and not discarded. State transitions directly to `DISPUTED` (`origin = V1_ERROR` or `V1_INCONCLUSIVE`) without requiring a challenge bond. Secondary verifier V2 handles fallback verification. V1 permanently loses authority and cannot reclaim the bounty or submit late reports. Sets `disputeTimestamp = timestamp` and `disputeDeadline = disputeTimestamp + T_v2`.
+     - `timeoutV1(bountyId)`:
        - Authorized caller: Permissionless (anyone).
        - Precondition: `timestamp >= verificationDeadline`.
-       - Effects: Transitions directly to `DISPUTED` for secondary verification by V2 without requiring or fabricating a result or an `evidenceHash`. No challenge bond is required. V1 permanently loses authority (revoked) and cannot reclaim the bounty or submit late reports. Sets `disputeTimestamp = timestamp` and `disputeDeadline = disputeTimestamp + T_v2`.
+       - Effects: Transitions directly to `DISPUTED` (`origin = V1_TIMEOUT`) for secondary verification by V2 without requiring or fabricating an outcome or `evidenceHash`. No challenge bond is required. V1 permanently loses authority and cannot reclaim the bounty or submit late reports. Sets `disputeTimestamp = timestamp` and `disputeDeadline = disputeTimestamp + T_v2`.
 
 8. **`REPORTED → DISPUTED` (Challenge-Originated Dispute)**:
-   - Triggered by `challenge(bond)`.
+   - Triggered by `challengePass(bountyId)` or `challengeFail(bountyId)`.
    - Authorized callers (Challenge Symmetry):
-     - If V1 result is `PASS`: Maintainer only.
-     - If V1 result is `FAIL`: Contributor only.
-   - Precondition: `timestamp < reportedTimestamp + T_challenge`; caller attaches exactly the protocol-configured `challengeBond` ($B_{chal} \le \min(\text{reward}, \text{MAX\_BOND\_CAP})$). Maintainers cannot configure an arbitrary bond per bounty.
-   - Effects: State transitions to `DISPUTED` for secondary verification by V2. Exactly one challenge round permitted per bounty. Sets `disputeTimestamp = timestamp` and `disputeDeadline = disputeTimestamp + T_v2`.
+     - `challengePass(bountyId)`: Maintainer only (when `v1Outcome == PASS`).
+     - `challengeFail(bountyId)`: Contributor only (when `v1Outcome == FAIL`).
+   - Precondition: `timestamp < reportedTimestamp + T_challenge`; caller attaches exactly the historical `challengeBond` ($B_{chal} = \min(\text{reward}, \text{MAX\_BOND\_CAP})$).
+   - Effects: State transitions to `DISPUTED` (`origin = CHALLENGE_PASS` or `CHALLENGE_FAIL`) for secondary verification by V2. Exactly one challenge round permitted per bounty. Sets `disputeTimestamp = timestamp` and `disputeDeadline = disputeTimestamp + T_v2`.
 
 9. **`REPORTED → SETTLED` (Unchallenged PASS)**:
-   - Triggered by `finalize()`.
+   - Triggered by `finalizeReport(bountyId)`.
    - Authorized caller: Permissionless.
-   - Precondition: V1 result is `PASS` and `timestamp >= reportedTimestamp + T_challenge`.
-   - Effects: Disburses bounty escrow to contributor.
+   - Precondition: V1 outcome is `PASS` and `timestamp >= reportedTimestamp + T_challenge`.
+   - Effects: Sets state to `SETTLED`. Credits bounty reward to `withdrawableBalance[contributor]`.
 
 10. **`REPORTED → REFUNDED` (Unchallenged FAIL)**:
-    - Triggered by `finalize()`.
+    - Triggered by `finalizeReport(bountyId)`.
     - Authorized caller: Permissionless.
-    - Precondition: V1 result is `FAIL` and `timestamp >= reportedTimestamp + T_challenge`.
-    - Effects: Returns bounty escrow to maintainer.
+    - Precondition: V1 outcome is `FAIL` and `timestamp >= reportedTimestamp + T_challenge`.
+    - Effects: Sets state to `REFUNDED`. Credits bounty reward to `withdrawableBalance[maintainer]`.
 
-11. **`DISPUTED → SETTLED` (V2 PASS Verdict or V2 Timeout on V1 PASS)**:
-    - Triggered by `resolveDispute(PASS)`:
-      - Authorized caller: Secondary Verifier (V2).
-      - Precondition: `timestamp < disputeDeadline`; verdict must be strictly `PASS`.
-      - Effects: Disburses bounty escrow to contributor.
+11. **`DISPUTED → SETTLED` (V2 PASS Verdict or V2 Timeout on CHALLENGE_PASS)**:
+    - Triggered by `reportV2(bountyId, outcome, evidenceHash)`:
+      - Authorized caller: Secondary Verifier (`SECONDARY_VERIFIER`).
+      - Precondition: `timestamp < disputeDeadline`; outcome must be strictly `Outcome.PASS`; nonzero `evidenceHash`.
+      - Effects: Sets state to `SETTLED`. Credits bounty reward to `withdrawableBalance[contributor]`.
         - For challenge-originated disputes:
-          - If V1 reported `FAIL` (challenge upheld; V2 overturns V1): Challenger receives 100% of the challenge bond back.
-          - If V1 reported `PASS` (challenge rejected; V2 confirms V1): Challenger (maintainer) loses the challenge bond; the bond is transferred to the contributor (the party whose V1 PASS result was confirmed).
-        - For automatic recovery disputes (claim timeout, V1 timeout, or V1 `ERROR`/`INCONCLUSIVE`): No challenge bond was deposited; full bounty escrow is disbursed to contributor.
-    - Triggered by `timeoutV2()`:
+          - If `origin == CHALLENGE_FAIL` (contributor challenged V1 FAIL; challenge upheld): Challenger receives 100% of the challenge bond back (credited to `withdrawableBalance[contributor]`).
+          - If `origin == CHALLENGE_PASS` (maintainer challenged V1 PASS; challenge rejected): Challenger (maintainer) forfeits challenge bond; bond is credited to `withdrawableBalance[contributor]`.
+        - For automatic recovery disputes (`CLAIM_TIMEOUT`, `V1_TIMEOUT`, `V1_ERROR`, `V1_INCONCLUSIVE`): No challenge bond was deposited; full bounty reward is credited to `withdrawableBalance[contributor]`.
+    - Triggered by `finalizeV2Timeout(bountyId)`:
       - Authorized caller: Permissionless.
-      - Precondition: `timestamp >= disputeDeadline` and V1 reported `PASS` (challenge-originated).
-      - Effects: Preserves documented V1-result fallback to `SETTLED`. Bounty escrow disbursed to contributor. Challenger receives 100% challenge bond back. Documented residual oracle/liveness limitation.
+      - Precondition: `timestamp >= disputeDeadline` and `origin == CHALLENGE_PASS`.
+      - Effects: Fallback resolves to `SETTLED`. Bounty reward credited to `withdrawableBalance[contributor]`. Challenger (maintainer) receives 100% challenge bond back (credited to `withdrawableBalance[maintainer]`).
 
 12. **`DISPUTED → REFUNDED` (V2 FAIL Verdict or V2 Timeout Fallback)**:
-    - Triggered by `resolveDispute(FAIL)`:
-      - Authorized caller: Secondary Verifier (V2).
-      - Precondition: `timestamp < disputeDeadline`; verdict must be strictly `FAIL`.
-      - Effects: Returns bounty escrow to maintainer.
+    - Triggered by `reportV2(bountyId, outcome, evidenceHash)`:
+      - Authorized caller: Secondary Verifier (`SECONDARY_VERIFIER`).
+      - Precondition: `timestamp < disputeDeadline`; outcome must be strictly `Outcome.FAIL`; nonzero `evidenceHash`.
+      - Effects: Sets state to `REFUNDED`. Credits bounty reward to `withdrawableBalance[maintainer]`.
         - For challenge-originated disputes:
-          - If V1 reported `PASS` (challenge upheld; V2 overturns V1): Challenger receives 100% of the challenge bond back.
-          - If V1 reported `FAIL` (challenge rejected; V2 confirms V1): Challenger (contributor) loses the challenge bond; the bond is transferred to the maintainer (the party whose V1 FAIL result was confirmed).
-        - For automatic recovery disputes (claim timeout, V1 timeout, or V1 `ERROR`/`INCONCLUSIVE`): No challenge bond was deposited; full bounty escrow is returned to maintainer.
-    - Triggered by `timeoutV2()`:
+          - If `origin == CHALLENGE_PASS` (maintainer challenged V1 PASS; challenge upheld): Challenger receives 100% of the challenge bond back (credited to `withdrawableBalance[maintainer]`).
+          - If `origin == CHALLENGE_FAIL` (contributor challenged V1 FAIL; challenge rejected): Challenger (contributor) forfeits challenge bond; bond is credited to `withdrawableBalance[maintainer]`.
+        - For automatic recovery disputes (`CLAIM_TIMEOUT`, `V1_TIMEOUT`, `V1_ERROR`, `V1_INCONCLUSIVE`): No challenge bond was deposited; full bounty reward is credited to `withdrawableBalance[maintainer]`.
+    - Triggered by `finalizeV2Timeout(bountyId)`:
       - Authorized caller: Permissionless.
       - Precondition: `timestamp >= disputeDeadline` and:
-        - If challenge-originated where V1 reported `FAIL`: Preserves documented fallback to `REFUNDED`; challenger receives 100% challenge bond back.
-        - If automatic recovery dispute (V1 `ERROR`/`INCONCLUSIVE`, V1 timeout, or V1 claim timeout): Preserves documented fallback to `REFUNDED` as unresolved-verification recovery. This does not assert contributor fault; it is a bounded MVP recovery rule; total oracle outage can prevent contributor payment. Documented residual oracle/liveness limitation.
+        - If `origin == CHALLENGE_FAIL`: Fallback resolves to `REFUNDED`; bounty reward credited to `withdrawableBalance[maintainer]`; challenger (contributor) receives 100% challenge bond back (credited to `withdrawableBalance[contributor]`).
+        - If automatic recovery dispute (`CLAIM_TIMEOUT`, `V1_TIMEOUT`, `V1_ERROR`, `V1_INCONCLUSIVE`): Fallback resolves to `REFUNDED` as unresolved-verification recovery; bounty reward credited to `withdrawableBalance[maintainer]`. This does not assert contributor fault; it is a bounded MVP recovery rule; total oracle outage can prevent contributor payment. Documented residual oracle/liveness limitation.
 
 ## Acceptance Specification
 
@@ -302,7 +302,7 @@ The protocol enforces deterministic accounting rules for the challenge bond in v
 The protocol enforces fourteen core invariants:
 
 1. **Protocol-Level Verifier Immutability & Non-Upgradeability**: `PRIMARY_VERIFIER` and `SECONDARY_VERIFIER` are fixed at contract deployment and immutable for the contract lifetime; neither can be changed, maintainers cannot select or override verifiers for an individual bounty, and the v0.1 contract is strictly non-upgradeable.
-2. **ACTIVE Liveness**: A funded `ACTIVE` bounty requires an explicit `submissionDeadline`. A contributor can submit work while `timestamp < submissionDeadline`. If no submission exists, the maintainer can voluntarily cancel (`cancelBounty()`), or anyone can permissionlessly call `expireBounty()` when `timestamp >= submissionDeadline` to refund the maintainer. A funded `ACTIVE` bounty cannot remain indefinitely locked if the maintainer disappears.
+2. **ACTIVE Liveness**: A funded `ACTIVE` bounty requires an explicit `submissionDeadline`. A contributor can submit work while `timestamp < submissionDeadline`. If no submission exists, the maintainer can voluntarily cancel (`cancelBounty()`), or anyone can permissionlessly call `expireBounty()` when `timestamp >= submissionDeadline` to refund the maintainer. The protocol provides permissionless progression to terminal refund after the deadline if no work is submitted.
 3. **No Claim Deadlock**: A submission not claimed within `T_claim` (`timestamp >= submissionTimestamp + T_claim`) permissionlessly advances to `DISPUTED` for fallback verification by V2.
 4. **Strict DAG State Progression**: Elimination of all retry cycles guarantees monotonic acyclic forward progression to terminal states (`SETTLED` or `REFUNDED`).
 5. **Bounded V1 Window & Authority Expiry**: Primary verification is bounded by `T_v1`; V1 permanently loses authority once `timestamp >= verificationDeadline` and cannot reclaim or submit late reports.
@@ -314,7 +314,7 @@ The protocol enforces fourteen core invariants:
 11. **Submission Immutability**: The first accepted submission binds the bounty to that contributor address for the current submission lifecycle.
 12. **Challenge Symmetry & Bounded Bond**: Maintainer can challenge `PASS`; contributor can challenge `FAIL`. The challenge bond is bounded by $B_{chal} \le \min(\text{reward}, \text{MAX\_BOND\_CAP})$ at the protocol level. Rejected challenges transfer the bond to the confirmed counterparty.
 13. **One Challenge Maximum**: Exactly one challenge round is permitted per bounty.
-14. **Escrow Conservation & Universal Liveness**: Contract balance strictly accounts for bounty funds and active challenge bonds; challenge bonds are never commingled with bounty escrow and no funds can be trapped. Every non-terminal state has a finite, permissionlessly executable progression or recovery mechanism.
+14. **Escrow Conservation & Universal Liveness**: Contract balance strictly accounts for bounty funds and active challenge bonds; challenge bonds are never commingled with bounty escrow. Every non-terminal state has a finite, permissionlessly executable progression or recovery mechanism.
 
 ## Open Questions
 

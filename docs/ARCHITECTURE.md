@@ -8,62 +8,64 @@ Maintainers define acceptance requirements in a machine-readable specification c
 
 ---
 
-## 2. Core Components & System Roles
+## 2. System Architecture & Tiered Structure
 
-TrustBounty v0.1 consists of four primary components:
+TrustBounty v0.1 architecture is organized across five distinct tiers, strictly separating on-chain enforcement from off-chain processing:
 
 ```text
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                      ACCEPTANCE SPECIFICATION ENGINE                     │
-│  Schema v1.1  ──►  RFC 8785 (JCS) Canonicalization  ──►  Keccak-256 Hash │
-│                             (specHash)                                  │
-└────────────────────────────────────┬────────────────────────────────────┘
-                                     │
-                                     ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                     ON-CHAIN ESCROW & STATE MACHINE                     │
-│                           (TrustBounty.sol)                             │
-│  - Native ETH Escrow & Liability Accounting (Reward, Bond, Withdrawable)│
+│              TIER 1: ON-CHAIN ESCROW & STATE MACHINE                    │
+│                        (TrustBounty.sol) [IMPLEMENTED NOW]              │
+│  - Native ETH Escrow & Segregated Liability Accounting                  │
 │  - 7-State Directed Acyclic Graph (DAG) State Transitions               │
-│  - Deployment-Immutable Verifiers (PRIMARY_VERIFIER, SECONDARY_VERIFIER)│
 │  - Non-Blocking Pull-Payment Subsystem (withdraw, withdrawTo)           │
-└───────────────────▲─────────────────────────────────▲───────────────────┘
-                    │                                 │
-           claim / reportVerification              reportV2
-                    │                                 │
-┌───────────────────┴────────────────┐   ┌────────────┴───────────────────┐
-│     PRIMARY VERIFIER (V1)          │   │     SECONDARY VERIFIER (V2)    │
-│  - Clones repo & checks out commit │   │  - Re-executes containerized   │
-│  - Runs container criteria         │   │    criteria on dispute         │
-│  - Generates evidenceHash (logs)   │   │  - Returns strictly PASS/FAIL  │
-│  - Reports PASS, FAIL, or ERROR    │   │  - Resolves challenges/timeouts│
-└────────────────────────────────────┘   └────────────────────────────────┘
+├─────────────────────────────────────────────────────────────────────────┤
+│          TIER 2: OPAQUE COMMITMENTS & ROLE ANCHORS                      │
+│                (Storage & External Interface) [IMPLEMENTED NOW]         │
+│  - Opaque Cryptographic Commitments: specHash, commitHash, evidenceHash │
+│  - Immutable Verifier Role Bindings: PRIMARY_VERIFIER, SECONDARY_VERIFIER│
+├─────────────────────────────────────────────────────────────────────────┤
+│        TIER 3: OFF-CHAIN ACCEPTANCE SPECIFICATION ENGINE                │
+│                 (specification/) [PLANNED / PHASE 2]                    │
+│  - Schema v1.1 Validation & RFC 8785 (JCS) Canonicalization             │
+│  - Off-Chain Keccak-256 specHash Generation                             │
+├─────────────────────────────────────────────────────────────────────────┤
+│        TIER 4: OFF-CHAIN VERIFIER & EXECUTION INFRASTRUCTURE            │
+│               (verifier/ & testbed) [PLANNED / PHASE 2]                 │
+│  - Autonomous V1 & V2 Verification Oracle Daemons                       │
+│  - Isolated Docker Sandbox & Criteria Execution Harness                 │
+│  - Evidence Bundle Generator & Anvil Integration Harness                │
+├─────────────────────────────────────────────────────────────────────────┤
+│              TIER 5: EXTERNAL INFRASTRUCTURE & DEPENDENCIES             │
+│  - Git Repositories (GitHub, GitLab), OCI Registries, EVM Nodes         │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 2.1 Acceptance Specification Module (`specification/`)
-* **Role**: Formulates, validates, and serializes machine-readable criteria under schema v1.1.
-* **Environment Pinning**: Binds the execution environment to an immutable container image digest (`image@sha256:...`).
-* **Deterministic Hashing**: Applies RFC 8785 JSON Canonicalization Scheme (JCS) and computes the 32-byte commitment `specHash = Keccak-256(RFC8785(specification))` prior to bounty creation.
-
-### 2.2 Escrow Smart Contract (`contracts/src/TrustBounty.sol`)
+### 2.1 Tier 1: On-Chain Escrow & State Machine (`contracts/src/TrustBounty.sol`) [IMPLEMENTED NOW]
 * **Role**: Non-upgradeable, monolithic smart contract holding escrowed funds and enforcing protocol invariants.
-* **State Machine**: Enforces monotonic forward progression across the 7-state DAG (`ACTIVE`, `SUBMITTED`, `VERIFYING`, `REPORTED`, `DISPUTED`, `SETTLED`, `REFUNDED`).
-* **Accounting**: Maintains explicit liability segregation (`totalRewardLiability`, `totalBondLiability`, `totalWithdrawableLiability`) preventing insolvency or griefing.
-* **Verifier Binding**: Immutably pins `PRIMARY_VERIFIER` and `SECONDARY_VERIFIER` addresses at deployment. Maintainers cannot select or override verifiers per bounty.
-* **Pull-Payment Subsystem**: Credits recipient balances during terminalization without external calls, exposing `withdraw()` and `withdrawTo(destination)` for secure fund retrieval.
+* **State Machine**: Enforces monotonic forward progression across the 7-state DAG (`ACTIVE`, `SUBMITTED`, `VERIFYING`, `REPORTED`, `DISPUTED`, `SETTLED`, `REFUNDED`) without retry cycles.
+* **Accounting**: Maintains explicit segregated liabilities (`totalRewardLiability`, `totalBondLiability`, `totalWithdrawableLiability`) preventing insolvency or fund mingling.
+* **Pull-Payment Subsystem**: Credits recipient balances during terminalization without external calls, exposing `withdraw()` and `withdrawTo(destination)` for secure pull-based fund retrieval.
 
-### 2.3 Primary Verification Oracle (V1)
-* **Role**: Designated off-chain execution daemon (`PRIMARY_VERIFIER`) monitoring on-chain `SUBMITTED` events.
-* **Execution**: Claims tasks within `T_claim`, pulls the target repository, checks out the exact submitted `commitHash`, and runs `BUILD`, `TEST`, and `COVERAGE` commands in the committed container environment.
-* **Reporting**: Submits on-chain reports within `T_v1`:
-  * `PASS` or `FAIL`: Transitions bounty to `REPORTED` alongside an `evidenceHash` commitment.
-  * `ERROR` or `INCONCLUSIVE`: Preserves the evidence commitment on-chain and escalates directly to `DISPUTED` for V2 fallback without requiring a challenge bond.
-* **Authority Revocation**: Permanently loses authority upon timing out or upon transitioning out of `VERIFYING`.
+### 2.2 Tier 2: Opaque Commitment Anchors & On-Chain Interface [IMPLEMENTED NOW]
+* **Role**: On-chain storage fields and interfaces binding off-chain data commitments and oracle roles.
+* **Specification Commitment**: The contract receives and stores an opaque `bytes32 specHash`. The contract does NOT parse, validate, or canonicalize JSON.
+* **Work Attribution**: The contributor submits an opaque `bytes20 commitHash`. The contract validates only that it is non-zero (`commitHash != bytes20(0)`) and stores that identifier. The contract does not verify repository membership, Git object validity, tree contents, or commit ancestry. `reportVerification()` does NOT accept a second commit hash from V1 for an on-chain equality check.
+* **Evidence Commitment**: Verifiers submit an opaque `bytes32 evidenceHash`. The contract stores the hash without inspecting or verifying the underlying transcript on-chain.
+* **Verifier Role Authorization**: The contract authorizes V1/V2 through fixed deployment-level verifier addresses using `msg.sender == PRIMARY_VERIFIER` and `msg.sender == SECONDARY_VERIFIER`. The contract does NOT verify oracle cryptographic signatures, perform `ecrecover`, or verify EIP-712 signatures.
 
-### 2.4 Secondary Verification Oracle (V2)
-* **Role**: Designated dispute arbitration and fallback verification daemon (`SECONDARY_VERIFIER`).
-* **Trigger Conditions**: Activated when a bounty enters `DISPUTED` via a maintainer/contributor challenge or via automatic recovery (claim timeout, V1 timeout, or V1 `ERROR`/`INCONCLUSIVE`).
-* **Binary Verdict**: Re-evaluates the submission in an independent environment and reports strictly `PASS` (→ `SETTLED`) or `FAIL` (→ `REFUNDED`) within `T_v2`.
+### 2.3 Tier 3: Acceptance Specification Processing Module [PLANNED / PHASE 2]
+* **Role**: Tooling for authoring, validating, and serializing machine-readable criteria under Schema v1.1.
+* **Environment Pinning**: Binds the execution environment to a container image digest (`image@sha256:...`).
+* **Deterministic Hashing**: Applies RFC 8785 JSON Canonicalization Scheme (JCS) and computes the 32-byte commitment `specHash = Keccak-256(RFC8785(specification))` entirely off-chain prior to bounty creation.
+
+### 2.4 Tier 4: Off-Chain Verifier & Execution Infrastructure [PLANNED / PHASE 2]
+* **Primary Verifier (V1) Daemon**: Autonomous off-chain execution service holding the private key for `PRIMARY_VERIFIER`. Monitors on-chain `WorkSubmitted` events, claims tasks within `T_claim`, clones the target repository, checks out the submitted commit, and executes `BUILD`, `TEST`, and `COVERAGE` criteria inside an isolated container. Reports verdicts (`PASS`, `FAIL`, `ERROR`, `INCONCLUSIVE`) and evidence commitments on-chain within `T_v1`.
+* **Secondary Verifier (V2) Daemon**: Autonomous dispute arbitration service holding the private key for `SECONDARY_VERIFIER`. Activated upon transition to `DISPUTED` (via challenge or automatic recovery), re-executes criteria in an independent sandbox, and reports strictly binary verdicts (`PASS` or `FAIL`) within `T_v2`.
+* **Evidence Bundle Generation & Anvil Harness**: Off-chain tools collecting structured execution transcripts and driving integration testing against local Anvil nodes.
+
+### 2.5 Tier 5: External Infrastructure & Dependencies
+* **External Services**: Git hosting platforms, container registries, and EVM network nodes outside the direct control of the protocol.
 
 ---
 
@@ -203,22 +205,27 @@ The state machine implements a strict Directed Acyclic Graph (DAG) across seven 
 
 ---
 
-## 5. Trust Boundaries & Blockchain Guarantees
+## 5. Trust Boundaries & Protocol Guarantees
 
 ### 5.1 What the Blockchain Guarantees
 
 * **Custody & Segregation**: Escrowed funds and challenge bonds are strictly secured on-chain. Challenge bonds cannot be used as bounty rewards.
-* **Deterministic Accounting**: Internal liability counters (`totalRewardLiability`, `totalBondLiability`, `totalWithdrawableLiability`) guarantee solvency at all times:
+* **Solvency Invariant**: The contract satisfies the accounting invariant:
   $$\text{address}(\text{this}).\text{balance} \ge \text{totalRewardLiability} + \text{totalBondLiability} + \text{totalWithdrawableLiability}$$
+  This is an accounting/solvency invariant maintained by the contract implementation and validated by the test suite; it is not an on-chain runtime assertion executed after each operation.
 * **Strict State Invariance**: State transitions follow the 7-state DAG without back-tracking or retry cycles.
 * **Commitment Integrity**: `specHash`, `commitHash`, and `evidenceHash` cannot be altered once written to storage.
-* **Liveness & Timeout Enforcement**: Every state has a deterministic, permissionlessly callable progression once its deadline passes (`timestamp >= deadline`).
+* **Liveness & Timeout Progression**: The protocol provides permissionless progression to terminal states after the relevant deadlines, but this does not guarantee successful verification or contributor payment when verifier infrastructure fails.
 * **DOS-Immune Pull Settlement**: Unpayable smart contracts (reverting on `.call` or gas-limited) cannot block bounty terminalization because terminal transitions credit `withdrawableBalance` internally without making external calls.
+* **Forced ETH Surplus**: Forced or unallocated ETH (e.g. from `selfdestruct` or mining coinbase) may increase `address(this).balance` above the sum of liabilities. Such surplus is not represented in liability counters. Version 0.1 has no sweep or recovery mechanism; such surplus therefore remains trapped and unallocated in the contract without compromising solvency or accounting for legitimate credits.
 
 ### 5.2 What the Blockchain Does NOT Guarantee
 
 * **Semantic Correctness of Software**: The smart contract commits to oracle verdicts; it does not compile or execute code on-chain.
-* **Test Suite Quality**: A poorly authored test suite that passes buggy code will result in a `PASS` verdict and fund disbursement.
+* **Git Repository & Object Verification**: The smart contract validates only that `commitHash != bytes20(0)` and stores the identifier. It does not verify repository membership, Git object validity, tree contents, or commit ancestry. Off-chain verifier infrastructure is responsible for obtaining and checking out the commit. `reportVerification()` does NOT accept a second commit hash from V1 for an on-chain equality check.
+* **Oracle Signature Verification**: The contract authorizes V1/V2 through fixed deployment-level verifier addresses using `msg.sender == PRIMARY_VERIFIER` and `msg.sender == SECONDARY_VERIFIER`. It does NOT verify oracle cryptographic signatures, perform `ecrecover`, or verify EIP-712 signatures.
+* **Container Execution Reproducibility**: The pinned container digest (`image@sha256:...`) binds image filesystem contents. However, host kernel, hardware architecture, CPU scheduling, network access, and external runtime dependencies can still introduce variability across execution hosts.
+* **Test Suite Quality**: A poorly authored test suite that passes non-functional code will result in a `PASS` verdict and fund disbursement.
 * **Oracle Honesty**: If both V1 and V2 collude or fail, the contract will execute their reported verdicts. Protocol v0.1 mitigates this via fixed deployment identities, symmetric challenge bonds, and deterministic timeout fallbacks, but verifier independence remains an off-chain trust assumption.
 * **External Git Availability**: If GitHub or Git hosting goes offline, oracles cannot clone the repository.
 * **Public Mempool Privacy**: In v0.1, submissions sent to public mempools can be observed by third parties (commit-reveal schemes are deferred to v0.2).

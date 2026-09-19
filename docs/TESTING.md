@@ -2,44 +2,47 @@
 
 ## 1. Testing Philosophy & Verification Hierarchy
 
-TrustBounty employs a multi-tiered testing roadmap designed to verify contract safety, liability conservation, state machine liveness, and error handling across all execution boundaries:
+TrustBounty employs a multi-tiered testing suite designed to verify contract safety, liability conservation, state machine progression, error handling, and withdrawal isolation across all execution boundaries:
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
 │ 1. Structural & Parameter Unit Tests [IMPLEMENTED]          │
 │    (Constructor validations, type consistency, getters)     │
 ├─────────────────────────────────────────────────────────────┤
-│ 2. Function Unit & State Transition Tests [IN PROGRESS]     │
-│    (createBounty & submitWork implemented; others stubbed)  │
+│ 2. Function Unit & State Transition Tests [IMPLEMENTED]     │
+│    (All 15 functions: creation, submission, settlement)     │
 ├─────────────────────────────────────────────────────────────┤
-│ 3. Boundary & Timing Tests [IMPLEMENTED FOR BUILT STEPS]    │
-│    (Exact deadline inequalities and vm.warp assertions)     │
+│ 3. Boundary & Timing Tests [IMPLEMENTED]                    │
+│    (Exact deadline inequalities and boundary conditions)     │
 ├─────────────────────────────────────────────────────────────┤
-│ 4. Authorization & Caller Access Control Tests [IN PROGRESS]│
+│ 4. Authorization & Caller Access Control Tests [IMPLEMENTED]│
 │    (Maintainer, contributor, V1, V2, and keeper matrices)   │
 ├─────────────────────────────────────────────────────────────┤
-│ 5. Pull-Payment, Reentrancy & Solvency Tests [PLANNED]      │
+│ 5. Pull-Payment, Reentrancy & Solvency Tests [IMPLEMENTED]  │
 │    (CEI, nonReentrant, unpayable recipient immunity)        │
 ├─────────────────────────────────────────────────────────────┤
-│ 6. Stateful Invariant & Fuzz Tests [PLANNED FOR FULL SUITE] │
-│    (Global solvency, liability conservation, DAG sinks)     │
+│ 6. Stateful Invariant & Fuzz Tests [IMPLEMENTED]            │
+│    (1,000 runs, 24 actions, 5 concurrent bounties)          │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+> [!NOTE]
+> **Scope of Testing Claims**:
+> The test suite provides extensive deterministic, fuzzed, invariant, adversarial, and bounded stateful coverage of the implemented protocol. It tests key behavioral and mathematical properties across a broad range of inputs; however, testing does not constitute an absolute mathematical proof of software infallibility.
 
 ---
 
 ## 2. Current Implementation & Test Status
 
-As of the current milestone, the smart contract repository contains **39 passing Foundry unit tests** in [`TrustBounty.t.sol`](../contracts/test/TrustBounty.t.sol):
+The smart contract test suite contains **256 passing Foundry tests** in [`TrustBounty.t.sol`](../contracts/test/TrustBounty.t.sol):
 
 | Category | Count | Status | Description |
 | :--- | :---: | :---: | :--- |
-| **Constructor & Deployment** | 10 | **Passing (Implemented)** | Verifies valid deployment, zero-address verifier rejections, identical verifier rejection, zero-duration parameter rejections, zero-bond-cap rejection, and initial liability state. |
-| **Getters & Types** | 3 | **Passing (Implemented)** | Verifies `getContractParameters()`, `getLiabilities()`, `nextBountyId()`, and struct/enum usability without duplicate declarations. |
-| **`createBounty()`** | 13 | **Passing (Implemented)** | Tests valid creation (ID 1, ID 2), exact storage struct initialization, `State.ACTIVE`, `totalRewardLiability` tracking, balance equality, `BountyCreated` event arguments, zero reward / zero specHash / invalid deadline rejections, and multi-maintainer isolation. |
-| **`submitWork()`** | 13 | **Passing (Implemented)** | Tests state transition to `SUBMITTED`, contributor and commit hash recording, `claimDeadline` calculation, `WorkSubmitted` event arguments, liability preservation, zero commit rejection, exact deadline / post-deadline rejections, nonexistent bounty rejection, non-ACTIVE state rejection, and revert atomicity. |
-| **Later Lifecycle Functions** | 0 | *Pending Implementation* | Test suites for `cancelBounty`, `expireBounty`, `claimVerification`, `expireClaim`, `reportVerification`, `timeoutV1`, `challengePass`, `challengeFail`, `finalizeReport`, `reportV2`, `finalizeV2Timeout`, `withdraw`, and `withdrawTo` will be implemented alongside their respective contract methods. |
-| **Invariant / Stateful Fuzz Tests** | 0 | *Planned* | Formal property-based tests (`invariant_*`) will be authored upon completion of all state-transition and withdrawal methods. |
+| **Deterministic Unit & Boundary** | 188 | **Passing** | Complete coverage of constructor, getters, `createBounty`, `submitWork`, `cancelBounty`, `expireBounty`, `claimVerification`, `expireClaim`, `reportVerification`, `timeoutV1`, `challengePass`, `challengeFail`, `finalizeReport`, `reportV2`, `finalizeV2Timeout`, `withdraw`, and `withdrawTo`. |
+| **Accounting Invariants** | 22 | **Passing** | Validates global solvency (`balance >= sum(liabilities)`), withdrawable liability conservation, terminalization conservation, failed withdrawal rollback, forced surplus isolation, and same-address credit accumulation. |
+| **Foundry Fuzz Tests** | 24 | **Passing** | Fuzzed parameters across bounty creation, commit submissions, verifier actions, challenges, deadlines, and state transitions. |
+| **Adversarial Withdrawal Tests** | 12 | **Passing** | Reentrancy attacks, forced ETH surpluses, unpayable contract recipients, and gas exhaustion vectors. |
+| **Hardened Stateful Multi-Bounty**| 10 | **Passing** | Multi-bounty concurrent execution across 5 concurrent bounties with 24-step action sequences and randomized interleaved withdrawals (1,000 runs). |
 
 ---
 
@@ -62,61 +65,62 @@ As of the current milestone, the smart contract repository contains **39 passing
   * [x] Nonexistent `bountyId` reverts with `BountyDoesNotExist`.
   * [x] Non-ACTIVE bounty reverts with `InvalidState`.
 * **Cancellation (`cancelBounty`)**:
-  * [ ] Maintainer can cancel while `ACTIVE` and before submission.
-  * [ ] Non-maintainer caller reverts with `UnauthorizedCaller`.
-  * [ ] Calling after `submitWork()` reverts with `InvalidState`.
-  * [ ] Reward is credited to maintainer `withdrawableBalance`; emits `BountyCancelled`.
+  * [x] Maintainer can cancel while `ACTIVE` and before submission.
+  * [x] Non-maintainer caller reverts with `UnauthorizedCaller`.
+  * [x] Calling after `submitWork()` reverts with `InvalidState`.
+  * [x] Reward is credited to maintainer `withdrawableBalance`; emits `BountyCancelled`.
 * **Expiry (`expireBounty`)**:
-  * [ ] Permissionless caller can expire when `block.timestamp >= submissionDeadline` without submission.
-  * [ ] Calling before `submissionDeadline` reverts with `DeadlineNotPassed`.
-  * [ ] Reward is credited to maintainer `withdrawableBalance`; emits `BountyExpired`.
+  * [x] Permissionless caller can expire when `block.timestamp >= submissionDeadline` without submission.
+  * [x] Calling before `submissionDeadline` reverts with `DeadlineNotPassed`.
+  * [x] Reward is credited to maintainer `withdrawableBalance`; emits `BountyExpired`.
 * **Claiming (`claimVerification`)**:
-  * [ ] `PRIMARY_VERIFIER` claims while `SUBMITTED` and `block.timestamp < claimDeadline`.
-  * [ ] Non-V1 caller reverts with `UnauthorizedCaller`.
-  * [ ] Calling at or after `claimDeadline` reverts with `DeadlinePassed`.
-  * [ ] Sets `verificationDeadline = block.timestamp + T_v1` and state to `VERIFYING`.
+  * [x] `PRIMARY_VERIFIER` claims while `SUBMITTED` and `block.timestamp < claimDeadline`.
+  * [x] Non-V1 caller reverts with `UnauthorizedCaller`.
+  * [x] Calling at or after `claimDeadline` reverts with `DeadlinePassed`.
+  * [x] Sets `verificationDeadline = block.timestamp + T_v1` and state to `VERIFYING`.
 * **Claim Expiry (`expireClaim`)**:
-  * [ ] Permissionless caller escalates to `DISPUTED` when `block.timestamp >= claimDeadline`.
-  * [ ] Sets `disputeOrigin = CLAIM_TIMEOUT` and `disputeDeadline = block.timestamp + T_v2`.
+  * [x] Permissionless caller escalates to `DISPUTED` when `block.timestamp >= claimDeadline`.
+  * [x] Sets `disputeOrigin = CLAIM_TIMEOUT` and `disputeDeadline = block.timestamp + T_v2`.
 * **V1 Reporting (`reportVerification`)**:
-  * [ ] V1 reports `PASS`/`FAIL` → transitions to `REPORTED`, sets `challengeDeadline = block.timestamp + T_challenge`.
-  * [ ] V1 reports `ERROR`/`INCONCLUSIVE` → records outcome and `evidenceHash`, transitions to `DISPUTED` (`origin = V1_ERROR` / `V1_INCONCLUSIVE`).
-  * [ ] Calling after `verificationDeadline` reverts with `DeadlinePassed`.
-  * [ ] Reporting `Outcome.NONE` reverts with `InvalidVerificationOutcome`.
+  * [x] V1 reports `PASS`/`FAIL` → transitions to `REPORTED`, sets `challengeDeadline = block.timestamp + T_challenge`.
+  * [x] V1 reports `ERROR`/`INCONCLUSIVE` → records outcome and `evidenceHash`, transitions to `DISPUTED` (`origin = V1_ERROR` / `V1_INCONCLUSIVE`).
+  * [x] Calling after `verificationDeadline` reverts with `DeadlinePassed`.
+  * [x] Reporting `Outcome.NONE` reverts with `InvalidVerificationOutcome`.
 * **V1 Timeout (`timeoutV1`)**:
-  * [ ] Permissionless caller escalates to `DISPUTED` (`origin = V1_TIMEOUT`) when `block.timestamp >= verificationDeadline`.
+  * [x] Permissionless caller escalates to `DISPUTED` (`origin = V1_TIMEOUT`) when `block.timestamp >= verificationDeadline`.
 * **Challenges (`challengePass` / `challengeFail`)**:
-  * [ ] Maintainer challenges `PASS` attaching exact bond $B_{chal} = \min(\text{reward}, \text{MAX\_BOND\_CAP})$.
-  * [ ] Contributor challenges `FAIL` attaching exact bond $B_{chal}$.
-  * [ ] Incorrect `msg.value` reverts with `IncorrectChallengeBond(provided, required)`.
-  * [ ] Calling after `challengeDeadline` reverts with `DeadlinePassed`.
-  * [ ] `challengePass` on `FAIL` or `challengeFail` on `PASS` reverts with `NotChallengeable`.
+  * [x] Maintainer challenges `PASS` attaching exact bond $B_{chal} = \min(\text{reward}, \text{MAX\_BOND\_CAP})$.
+  * [x] Contributor challenges `FAIL` attaching exact bond $B_{chal}$.
+  * [x] Incorrect `msg.value` reverts with `IncorrectChallengeBond(provided, required)`.
+  * [x] Calling after `challengeDeadline` reverts with `DeadlinePassed`.
+  * [x] `challengePass` on `FAIL` or `challengeFail` on `PASS` reverts with `NotChallengeable`.
 * **Finalization (`finalizeReport`)**:
-  * [ ] Unchallenged `PASS` at `block.timestamp >= challengeDeadline` transitions to `SETTLED` (credits contributor).
-  * [ ] Unchallenged `FAIL` at `block.timestamp >= challengeDeadline` transitions to `REFUNDED` (credits maintainer).
+  * [x] Unchallenged `PASS` at `block.timestamp >= challengeDeadline` transitions to `SETTLED` (credits contributor).
+  * [x] Unchallenged `FAIL` at `block.timestamp >= challengeDeadline` transitions to `REFUNDED` (credits maintainer).
 * **V2 Reporting (`reportV2`)**:
-  * [ ] `SECONDARY_VERIFIER` reports `PASS` (→ `SETTLED`) or `FAIL` (→ `REFUNDED`) while `block.timestamp < disputeDeadline`.
-  * [ ] Resolves challenge bonds: upheld returns to challenger, rejected transfers to counterparty.
-  * [ ] Non-binary outcomes (`ERROR`, `INCONCLUSIVE`) revert with `InvalidVerificationOutcome`.
+  * [x] `SECONDARY_VERIFIER` reports `PASS` (→ `SETTLED`) or `FAIL` (→ `REFUNDED`) while `block.timestamp < disputeDeadline`.
+  * [x] Resolves challenge bonds: upheld returns to challenger, rejected transfers to counterparty.
+  * [x] Non-binary outcomes (`ERROR`, `INCONCLUSIVE`) revert with `InvalidVerificationOutcome`.
 * **V2 Timeout (`finalizeV2Timeout`)**:
-  * [ ] Permissionless timeout at `block.timestamp >= disputeDeadline`.
-  * [ ] Challenge-originated disputes fall back to V1 verdict with 100% bond refund to challenger.
-  * [ ] Automatic recovery disputes fall back to `REFUNDED` as unresolved-verification recovery.
+  * [x] Permissionless timeout at `block.timestamp >= disputeDeadline`.
+  * [x] Challenge-originated disputes fall back to V1 verdict with 100% bond refund to challenger.
+  * [x] Automatic recovery disputes fall back to `REFUNDED` as unresolved-verification recovery.
 * **Pull Withdrawals (`withdraw` / `withdrawTo`)**:
-  * [ ] `withdraw()` transfers full `withdrawableBalance[msg.sender]` to `msg.sender`.
-  * [ ] `withdrawTo(dest)` transfers full credit to `dest`.
-  * [ ] `withdrawTo(address(0))` reverts with `InvalidZeroAddress()`.
-  * [ ] Zero balance reverts with `InvalidZeroAmount()`.
-  * [ ] Failed external transfer (`.call` failure) reverts with `EthTransferFailed` and leaves balance intact.
+  * [x] `withdraw()` transfers full `withdrawableBalance[msg.sender]` to `msg.sender`.
+  * [x] `withdrawTo(dest)` transfers full credit to `dest`.
+  * [x] `withdrawTo(address(0))` reverts with `InvalidZeroAddress()`.
+  * [x] Zero balance reverts with `InvalidZeroAmount()`.
+  * [x] Failed external transfer (`.call` failure) reverts with `EthTransferFailed` and leaves balance intact.
 
 ---
 
-## 4. Planned Invariant Specifications (Foundry `invariant_*`)
+## 4. Implemented Accounting Invariants
 
-Upon completing the full state-transition implementation, the test suite will incorporate stateful invariant fuzzing targeting eight formal properties:
+The test suite validates eight formal accounting invariants:
 
-1. **Global Solvency**:
+1. **Global Solvency Invariant**:
    $$\text{address}(\text{this}).\text{balance} \ge \text{totalRewardLiability} + \text{totalBondLiability} + \text{totalWithdrawableLiability}$$
+   *Note: This is an accounting/solvency invariant maintained by the implementation and asserted across test scenarios; it is not an on-chain runtime assertion.*
 2. **Withdrawable Liability Conservation**:
    $$\text{totalWithdrawableLiability} == \sum_{a \in \text{Accounts}} \text{withdrawableBalance}[a]$$
 3. **Reward Liability Conservation**: Every reward deducted from `totalRewardLiability` is simultaneously credited to `withdrawableBalance` or already withdrawn.

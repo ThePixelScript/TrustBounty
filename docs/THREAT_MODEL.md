@@ -10,7 +10,7 @@ TrustBounty protects the following core assets:
 4. **Specification Commitment (`specHash`)**: The immutable 32-byte Keccak-256 hash representing the acceptance criteria, base commit, and container digest.
 5. **Work Attribution (`commitHash`)**: The immutable 20-byte Git SHA-1 commit identifier submitted by the contributor.
 6. **Execution Evidence (`evidenceHash`)**: Cryptographic commitments to off-chain test logs, container outputs, and execution transcripts.
-7. **Protocol Liveness**: The guarantee that funds cannot remain indefinitely frozen in any intermediate state.
+7. **Protocol Liveness**: The property that every non-terminal state has a finite, permissionlessly executable progression or timeout path after deadlines expire, ensuring bounties advance to terminal states even when counterparties disappear (though this does not guarantee successful verification or contributor payment if verifier infrastructure fails).
 
 ---
 
@@ -31,9 +31,9 @@ TrustBounty protects the following core assets:
 | Dimension | Scope | Trust Model | Protocol Assumption & Boundary |
 | :--- | :--- | :--- | :--- |
 | **Smart Contract & EVM** | On-Chain | **Deterministic Code Execution** | Enforces state machine, deadlines, access control, liability conservation, and pull-payment mechanics. |
-| **Verifier Oracles (V1/V2)** | Off-Chain | **Bounded Trust (Centralized)** | Fixed at deployment (`PRIMARY_VERIFIER`, `SECONDARY_VERIFIER`). Verifiers are trusted to run tests faithfully, but authority is strictly bounded by deadlines, timeouts, symmetric challenges, and V2 fallback. |
-| **Container Environment** | Off-Chain | **Deterministic Commitment** | Pinned image digest (`image@sha256:...`) ensures environment immutability, but execution honesty relies on oracle integrity. |
-| **Git & Code Hosting** | Off-Chain | **External Infrastructure** | Commit history availability depends on external hosting platforms (e.g., GitHub, GitLab). |
+| **Verifier Oracles (V1/V2)** | Off-Chain | **Bounded Trust (Centralized)** | Fixed at deployment (`PRIMARY_VERIFIER`, `SECONDARY_VERIFIER`). Authorized on-chain solely via `msg.sender == PRIMARY_VERIFIER` and `msg.sender == SECONDARY_VERIFIER` (no cryptographic signature verification or `ecrecover`). Authority is bounded by deadlines, timeouts, symmetric challenges, and V2 fallback. |
+| **Container Environment** | Off-Chain | **Deterministic Commitment** | Pinned image digest (`image@sha256:...`) binds image filesystem contents, though host kernel, hardware architecture, CPU scheduling, network access, and external runtime factors can still affect execution. |
+| **Git & Code Hosting** | Off-Chain | **External Infrastructure** | The contract accepts an opaque `bytes20 commitHash` and validates only that it is non-zero; it does not verify Git object integrity, repository membership, tree contents, or commit ancestry on-chain. Off-chain infrastructure fetches and checks out the commit. |
 | **Test Quality & Coverage** | Off-Chain | **Maintainer Domain** | Passing tests only prove the criteria defined in the specification; the protocol cannot prove the absence of backdoors or semantic flaws outside the test suite. |
 
 ---
@@ -96,13 +96,13 @@ TrustBounty protects the following core assets:
 * **Asset at Risk**: Protocol Liveness.
 * **Attack**: V1 goes offline or refuses to claim a submitted bounty.
 * **Mitigation**: `claimDeadline = block.timestamp + T_claim`. If V1 does not call `claimVerification()` before the deadline, anyone can permissionlessly call `expireClaim()`, advancing the bounty directly to `DISPUTED` for V2 fallback without requiring a challenge bond.
-* **Residual Trust**: Guaranteed by on-chain deadline escalation to V2.
+* **Residual Trust**: Enforced by on-chain deadline escalation to V2.
 
 #### Threat: Verification Timeout / Mid-Execution Failure
 * **Asset at Risk**: Protocol Liveness.
 * **Attack**: V1 claims a bounty (`VERIFYING`) but crashes, hangs, or refuses to report.
 * **Mitigation**: `verificationDeadline = block.timestamp + T_v1`. If V1 does not report within `T_v1`, anyone can call `timeoutV1()`, escalating directly to `DISPUTED` without requiring or fabricating a report. V1 permanently loses authority.
-* **Residual Trust**: Guaranteed by on-chain DAG state progression.
+* **Residual Trust**: Enforced by on-chain DAG state progression.
 
 #### Threat: False Report / Corrupt Verdict
 * **Asset at Risk**: Escrow Funds.
@@ -114,7 +114,7 @@ TrustBounty protects the following core assets:
 * **Asset at Risk**: State Consistency.
 * **Attack**: Flaky tests or container environment crashes produce execution errors.
 * **Mitigation**: V1 reports `ERROR` or `INCONCLUSIVE`. The contract records the outcome and `evidenceHash` on-chain, preserving the evidence trail, and escalates directly to `DISPUTED` for secondary arbitration without requiring a challenge bond.
-* **Residual Trust**: Guaranteed by on-chain single-attempt recording and automatic V2 escalation.
+* **Residual Trust**: Enforced by on-chain single-attempt recording and automatic V2 escalation.
 
 ---
 
@@ -177,7 +177,7 @@ TrustBounty protects the following core assets:
 
 #### Threat: Forced ETH Injection (`selfdestruct` / Mining Rewards)
 * **Attack**: An attacker forcibly sends ETH to the contract via `selfdestruct` to manipulate balance checks.
-* **Mitigation**: The contract tracks internal liabilities (`totalRewardLiability`, `totalBondLiability`, `totalWithdrawableLiability`) and never relies on strict equality `address(this).balance == liabilities`. Forced ETH remains unallocated surplus.
+* **Mitigation**: The contract tracks internal liabilities (`totalRewardLiability`, `totalBondLiability`, `totalWithdrawableLiability`) and maintains the invariant `address(this).balance >= sum(liabilities)` without asserting equality. Forced ETH remains unallocated surplus; version 0.1 contains no sweep or recovery mechanism, so such surplus remains permanently trapped in the contract without corrupting legitimate balances.
 * **Residual Trust**: Mitigated on-chain via internal liability ledger tracking.
 
 #### Threat: Timestamp Manipulation by Validators

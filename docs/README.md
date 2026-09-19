@@ -32,7 +32,7 @@ Welcome to the TrustBounty protocol documentation. This directory contains the n
 * **[`THREAT_MODEL.md`](THREAT_MODEL.md)** — **Security Analysis & Threat Model**
   * Adversarial actor profiles, threat vectors (maintainer, contributor, V1, V2, front-running, reentrancy, unpayable recipients), protocol mitigations, and residual trust assumptions.
 * **[`TESTING.md`](TESTING.md)** — **Testing Strategy & Test Matrix**
-  * Test hierarchy, current testing suite status (39 unit/boundary tests in `TrustBounty.t.sol`), and planned invariant/fuzz testing specifications.
+  * Test hierarchy, complete testing suite status (256 tests in `TrustBounty.t.sol` covering deterministic unit, boundary, invariant, fuzz, adversarial, and stateful multi-bounty tests).
 
 ### 2.4 Research & Evaluation
 * **[`RESEARCH.md`](RESEARCH.md)** — **Research Framing & Empirical Metrics**
@@ -46,5 +46,10 @@ Welcome to the TrustBounty protocol documentation. This directory contains the n
 
 ## 3. Implementation Status Summary
 
-* **Acceptance Specification Module (`specification/`)**: Fully implemented and tested under TypeScript.
-* **Smart Contracts (`contracts/`)**: Structural contract skeleton (`TrustBountyTypes.sol`, `ITrustBounty.sol`, `TrustBounty.sol`) and initial lifecycle functions (`createBounty`, `submitWork`) implemented with 39 passing Foundry tests in `TrustBounty.t.sol`. Later lifecycle functions are defined as stubs pending milestone implementation.
+### Implemented Now
+* **Smart Contracts (`contracts/src/`)**: `TrustBounty.sol`, `ITrustBounty.sol`, and `TrustBountyTypes.sol` are fully implemented, verified, and frozen. All 15 external functions, 13 events, 16 custom errors, segregated liability accounting, and non-blocking pull payments are complete.
+* **Test Suite (`contracts/test/`)**: 256 passing Foundry tests in `TrustBounty.t.sol` providing extensive deterministic, fuzzed, invariant, adversarial, and bounded stateful coverage.
+
+### Planned / Phase 2
+* **Acceptance Specification Module (`specification/`)**: RFC 8785 / JCS canonicalization, Schema v1.1 validation, and off-chain `specHash` generation.
+* **Verifier Infrastructure (`verifier/`)**: Autonomous V1/V2 daemon services, Docker execution sandbox, evidence bundle generation, and Anvil integration harness.

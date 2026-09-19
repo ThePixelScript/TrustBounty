@@ -6,12 +6,12 @@ The TrustBounty Acceptance Specification defines the machine-readable requiremen
 
 ## Specification Lifecycle
 
-1. **Authoring**: The bounty sponsor defines the repository context, target base commit, execution environment, and verification criteria.
-2. **Validation**: The specification is validated against protocol rules, ensuring schema conformity, immutable environment digest, unambiguous criteria IDs, and valid thresholds.
-3. **Canonicalization**: The validated specification is serialized using RFC 8785 JSON Canonicalization Scheme (JCS) to eliminate formatting ambiguity.
-4. **Commitment**: The canonical representation is hashed using Ethereum-compatible Keccak-256 (`specHash`).
-5. **On-Chain Commitment**: The resulting `specHash` is submitted during bounty initialization on-chain prior to bounty activation.
-6. **Verification (Future)**: Evaluation environments execute the committed criteria within the designated immutable container image against submitted pull requests.
+1. **Authoring (Off-Chain)**: The bounty sponsor defines the repository context, target base commit, execution environment, and verification criteria.
+2. **Validation (Off-Chain Tooling)**: The specification is validated against protocol rules, ensuring schema conformity, immutable environment digest, unambiguous criteria IDs, and valid thresholds.
+3. **Canonicalization (Off-Chain Tooling)**: The validated specification is serialized using RFC 8785 JSON Canonicalization Scheme (JCS) to eliminate formatting ambiguity.
+4. **Commitment Calculation (Off-Chain Tooling)**: The canonical representation is hashed using Ethereum-compatible Keccak-256 (`specHash`).
+5. **On-Chain Commitment (Implemented Now in TrustBounty.sol)**: The resulting 32-byte hash is submitted as `specHash` during `createBounty()` on-chain. The contract stores this hash immutably as an opaque commitment without parsing or validating the underlying JSON specification.
+6. **Verification (Planned / Phase 2)**: Evaluation environments execute the committed criteria within the designated immutable container image against submitted pull requests.
 
 ## Schema
 
@@ -91,7 +91,7 @@ The `environment` object specifies the immutable runtime container image in whic
 
 - **Field**: `image` (string, required).
 - **Format**: Must follow `<image-reference>@sha256:<64 lowercase hexadecimal characters>`.
-- **Immutability**: Image references must be pinned to a cryptographic sha256 digest rather than a mutable tag (e.g. `:latest` or `:22`), ensuring verifiable reproducibility.
+- **Immutability**: Image references must be pinned to a cryptographic sha256 digest rather than a mutable tag (e.g. `:latest` or `:22`), ensuring immutable image distribution. Note that while digest pinning binds container rootfs and configuration bits, absolute execution reproducibility across distinct hosts also depends on host kernel version, CPU architecture, memory/scheduler constraints, and container runtime flags.
 - **Validation Scope**: Validation checks digest syntax purely offline without performing network calls or registry lookups.
 
 ## Criterion Semantics
@@ -141,9 +141,9 @@ specHash = Keccak-256(RFC8785(specification))
 
 ## Immutability Requirement
 
-The acceptance specification must be committed before bounty activation. Once a bounty is activated, the acceptance criteria and execution environment are fixed. Any modification to acceptance criteria requires the cancellation or expiration of the existing bounty and the creation of a new bounty with a new specification commitment.
+The acceptance specification must be committed before bounty activation. Once a bounty is created, the acceptance criteria hash and bounty parameters are fixed in contract storage. Any modification to acceptance criteria requires creating a new bounty with a new specification commitment.
 
-*Note*: Cryptographic enforcement of bounty immutability is handled by the TrustBounty smart contract protocol in a later milestone, not by this TypeScript foundation module.
+*Note*: In TrustBounty v0.1, the smart contract (`TrustBounty.sol`) stores the `specHash` immutably upon `createBounty()`. The contract treats `specHash` as an opaque `bytes32` value and does not inspect, parse, or validate the JSON specification on-chain; validation and JCS canonicalization are performed entirely by off-chain tooling.
 
 ## Validation Rules
 
@@ -168,7 +168,7 @@ Validation errors clearly identify the invalid field path and error rationale. V
 - Only three criterion types are supported: `BUILD`, `TEST`, and `COVERAGE`.
 - Coverage comparisons only support the `>=` operator.
 - Execution environment specifications support a single container image digest; multi-stage environments, resource limits, and timeouts are out of scope for v1.1.
-- Cryptographic on-chain binding is not enforced in this module and will be handled by the smart contract milestone.
+- On-chain contracts bind the specification via opaque `bytes32 specHash` only; semantic verification of criteria against PRs is executed off-chain by verifier daemons (Planned / Phase 2).
 
 ## Future Extensions
 

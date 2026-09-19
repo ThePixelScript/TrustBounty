@@ -20,8 +20,13 @@ The following mechanisms are explicitly outside the scope of protocol v0.1:
 - **Dynamic Verifier Registries / Staking / Slashing**: Verifier identities are fixed at deployment. No on-chain verifier registration, staking deposits, reputation scores, or slashing conditions exist in v0.1.
 - **DAO Governance / Multisig Overrides**: No governance entity, DAO voting, or administrative override can seize, freeze, or redirect escrowed funds.
 - **On-Chain Test Execution**: The EVM smart contract DOES NOT clone repositories, parse test output, or execute code. Verification results are provided by off-chain oracles. The verifier commitment DOES NOT prove software correctness; it commits to off-chain oracle reports.
+- **On-Chain Specification & JSON Processing**: The contract receives and stores an opaque `bytes32 specHash`. The contract DOES NOT validate, parse, or canonicalize JSON schemas or execute RFC 8785 (JCS) canonicalization. All specification processing and Keccak-256 hash generation occur entirely off-chain.
+- **On-Chain Git Commit & Tree Verification**: The contract accepts an opaque `bytes20 commitHash` and validates only that it is non-zero (`commitHash != bytes20(0)`). The contract DOES NOT verify Git object validity, repository membership, tree contents, or commit ancestry. `reportVerification()` DOES NOT accept a second commit hash for an on-chain equality check. Off-chain verifier infrastructure is responsible for fetching and checking out the commit.
+- **Oracle Cryptographic Signature Verification**: The contract authorizes verifiers solely via fixed deployment-level addresses using `msg.sender == PRIMARY_VERIFIER` and `msg.sender == SECONDARY_VERIFIER`. The contract DOES NOT verify cryptographic signatures, execute `ecrecover`, or process EIP-712 typed data signatures.
+- **Surplus Sweep Mechanism**: The contract DOES NOT include a balance sweep or recovery function for forced ETH surplus. Any surplus received outside payable functions remains unallocated and trapped in the contract.
 - **Mempool Commit-Reveal**: Cryptographic mitigation of public mempool front-running is deferred to v0.2.
 - **Multi-Contributor Competition / Split Payouts**: Exactly one contributor is bound per bounty. Fractional streaming, multi-contributor splits, and 50/50 dispute divisions are strictly prohibited.
+- **Guaranteed Settlement on Verifier Failure**: The protocol provides permissionless progression to terminal states after the relevant deadlines, but this does not guarantee successful verification or contributor payment when verifier infrastructure fails.
 
 ---
 
@@ -758,9 +763,10 @@ The smart contract MUST maintain exact internal accounting of all native ETH obl
      - Withdrawals do NOT affect bounty liabilities (`totalRewardLiability` or `totalBondLiability`) because those liabilities were already removed from the contract's accounting at terminalization.
 
 4. **Solvency Verification**:
-   - Solvency must account for both active liabilities and outstanding withdrawal credits. At all times, the contract's actual balance MUST cover all internal liabilities:
+   - Solvency must account for both active liabilities and outstanding withdrawal credits. At all times, the contract's actual balance MUST satisfy the accounting invariant:
      $$\text{address}(\text{this}).\text{balance} \ge \text{totalRewardLiability} + \text{totalBondLiability} + \text{totalWithdrawableLiability}$$
-   - Any ETH received outside authorized payable functions (e.g. via `selfdestruct` or block coinbase / mining rewards) increases `address(this).balance` without increasing any internal liability counter. Such forced ETH remains unallocated surplus and MUST NOT break accounting or prevent legitimate withdrawals or bounty settlements.
+     This is an accounting/solvency invariant maintained by the contract implementation and validated by the test suite; it is not an on-chain runtime assertion executed after each operation.
+   - Any ETH received outside authorized payable functions (e.g. via `selfdestruct` or block coinbase / mining rewards) increases `address(this).balance` without increasing any internal liability counter. Such forced ETH remains unallocated surplus and MUST NOT break accounting or prevent legitimate withdrawals or bounty settlements. Version 0.1 contains no sweep or recovery mechanism; such surplus therefore remains permanently unallocated and trapped in the contract.
 
 5. **Liability Conservation Equations**:
    $$\text{totalRewardLiability} = \sum_{b \in \text{Non-Terminal Bounties}} \text{bounties}[b].\text{reward}$$
