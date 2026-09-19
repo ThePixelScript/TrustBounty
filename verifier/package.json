@@ -1,0 +1,16 @@
+{
+  "name": "@trustbounty/verifier",
+  "version": "0.1.0",
+  "description": "TrustBounty Off-Chain Verifier: isolated workspace preparation and verification",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "type-check": "node ../specification/node_modules/typescript/bin/tsc --noEmit",
+    "test": "node --test test/workspace.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.8.0"
+  }
+}
