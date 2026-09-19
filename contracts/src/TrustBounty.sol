@@ -126,8 +126,49 @@ contract TrustBounty is ITrustBounty, ReentrancyGuard {
 
     // --- State-Changing Functions (Unimplemented Stubs) ---
 
-    function createBounty(bytes32, uint256) external payable override returns (uint256) {
-        revert();
+    function createBounty(bytes32 specHash, uint256 submissionDeadline)
+        external
+        payable
+        override
+        returns (uint256 bountyId)
+    {
+        if (msg.value == 0) {
+            revert InvalidZeroAmount();
+        }
+        if (specHash == bytes32(0)) {
+            revert InvalidZeroHash();
+        }
+        if (submissionDeadline <= block.timestamp) {
+            revert InvalidSubmissionDeadline(submissionDeadline, block.timestamp);
+        }
+
+        bountyId = nextBountyId;
+        nextBountyId = bountyId + 1;
+
+        bounties[bountyId] = Bounty({
+            bountyId: bountyId,
+            maintainer: msg.sender,
+            contributor: address(0),
+            reward: msg.value,
+            specHash: specHash,
+            commitHash: bytes20(0),
+            submissionDeadline: submissionDeadline,
+            claimDeadline: 0,
+            verificationDeadline: 0,
+            challengeDeadline: 0,
+            disputeDeadline: 0,
+            v1Outcome: Outcome.NONE,
+            v2Outcome: Outcome.NONE,
+            v1EvidenceHash: bytes32(0),
+            v2EvidenceHash: bytes32(0),
+            disputeOrigin: DisputeOrigin.NONE,
+            challengeBond: 0,
+            state: State.ACTIVE
+        });
+
+        totalRewardLiability += msg.value;
+
+        emit BountyCreated(bountyId, msg.sender, specHash, msg.value, submissionDeadline);
     }
 
     function submitWork(uint256, bytes20) external override {
